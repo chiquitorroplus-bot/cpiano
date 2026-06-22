@@ -31,7 +31,6 @@
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
-
   html, body { height: 100%; overflow: hidden; }
 
   body {
@@ -45,36 +44,26 @@
 
   body::before {
     content: '';
-    position: fixed;
-    inset: 0;
+    position: fixed; inset: 0;
     background: 
       radial-gradient(ellipse at 20% 0%, rgba(212, 165, 116, 0.08) 0%, transparent 50%),
       radial-gradient(ellipse at 80% 100%, rgba(168, 127, 74, 0.06) 0%, transparent 50%),
       radial-gradient(ellipse at 50% 50%, rgba(141, 181, 128, 0.02) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
+    pointer-events: none; z-index: 0;
   }
 
   body::after {
     content: '';
-    position: fixed;
-    inset: 0;
+    position: fixed; inset: 0;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.83 0 0 0 0 0.65 0 0 0 0 0.46 0 0 0 0.4 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    opacity: 0.06;
-    pointer-events: none;
-    z-index: 0;
-    mix-blend-mode: overlay;
+    opacity: 0.06; pointer-events: none; z-index: 0; mix-blend-mode: overlay;
   }
 
   header {
-    position: relative;
-    z-index: 2;
+    position: relative; z-index: 2;
     padding: 18px 28px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 24px; border-bottom: 1px solid var(--border);
     background: linear-gradient(180deg, rgba(24,19,13,0.9) 0%, rgba(15,12,8,0.6) 100%);
     backdrop-filter: blur(10px);
   }
@@ -208,13 +197,58 @@
     max-width: 400px; margin: 0 auto; line-height: 1.6;
   }
 
+  /* === RESALTADO DE NOTAS EN EL PENTAGRAMA === */
+  /* Nota actual: dorado vibrante con halo pulsante */
   .vf-stavenote.current-note .vf-notehead {
-    fill: #c44536 !important; stroke: #8a2e22 !important; stroke-width: 1.5 !important;
+    fill: #e8941c !important;
+    stroke: #a85f00 !important;
+    stroke-width: 1.5 !important;
   }
   .vf-stavenote.current-note .vf-stem,
-  .vf-stavenote.current-note .vf-flag { stroke: #8a2e22 !important; }
-  .vf-stavenote.current-note { filter: drop-shadow(0 0 8px rgba(196, 69, 54, 0.5)); }
-  .vf-stavenote.played-note .vf-notehead { fill: #6a8c5e !important; stroke: #4a6b3e !important; }
+  .vf-stavenote.current-note .vf-flag,
+  .vf-stavenote.current-note .vf-beam {
+    stroke: #a85f00 !important;
+    stroke-width: 1.8 !important;
+    fill: #a85f00 !important;
+  }
+  .vf-stavenote.current-note .vf-notehead path,
+  .vf-stavenote.current-note path.vf-notehead {
+    fill: #e8941c !important;
+  }
+  .vf-stavenote.current-note {
+    filter: drop-shadow(0 0 6px rgba(232, 148, 28, 0.9))
+            drop-shadow(0 0 14px rgba(232, 148, 28, 0.5));
+    animation: note-glow 1.4s ease-in-out infinite;
+  }
+
+  @keyframes note-glow {
+    0%, 100% {
+      filter: drop-shadow(0 0 6px rgba(232, 148, 28, 0.9))
+              drop-shadow(0 0 14px rgba(232, 148, 28, 0.4));
+    }
+    50% {
+      filter: drop-shadow(0 0 10px rgba(255, 180, 60, 1))
+              drop-shadow(0 0 24px rgba(232, 148, 28, 0.7));
+    }
+  }
+
+  /* Notas ya tocadas: verde tenue */
+  .vf-stavenote.played-note .vf-notehead {
+    fill: #9bbf8e !important;
+    stroke: #5a7d50 !important;
+    opacity: 0.55;
+  }
+  .vf-stavenote.played-note .vf-stem,
+  .vf-stavenote.played-note .vf-flag,
+  .vf-stavenote.played-note .vf-beam {
+    stroke: #5a7d50 !important;
+    fill: #5a7d50 !important;
+    opacity: 0.55;
+  }
+  .vf-stavenote.played-note .vf-notehead path,
+  .vf-stavenote.played-note path.vf-notehead {
+    fill: #9bbf8e !important;
+  }
 
   .piano-area {
     position: relative; z-index: 2;
@@ -305,13 +339,16 @@
   }
 
   .key.expected {
-    background: linear-gradient(to bottom, var(--accent-bright) 0%, var(--accent) 50%, var(--accent-deep) 100%) !important;
-    box-shadow: 0 0 20px var(--accent-bright), 0 0 40px rgba(212, 165, 116, 0.5), inset 0 -6px 10px rgba(0,0,0,0.2) !important;
+    background: linear-gradient(to bottom, #f0c98a 0%, #d4a574 50%, #a87f4a 100%) !important;
+    box-shadow: 0 0 20px #f0c98a, 0 0 40px rgba(212, 165, 116, 0.5), inset 0 -6px 10px rgba(0,0,0,0.2) !important;
     animation: key-pulse 1.4s ease-in-out infinite;
   }
+  .key.black.expected {
+    background: linear-gradient(to bottom, #f0c98a 0%, #d4a574 50%, #a87f4a 100%) !important;
+  }
   @keyframes key-pulse {
-    0%, 100% { box-shadow: 0 0 20px var(--accent-bright), 0 0 40px rgba(212, 165, 116, 0.4), inset 0 -6px 10px rgba(0,0,0,0.2); }
-    50% { box-shadow: 0 0 30px var(--accent-bright), 0 0 60px rgba(240, 201, 138, 0.7), inset 0 -6px 10px rgba(0,0,0,0.2); }
+    0%, 100% { box-shadow: 0 0 20px #f0c98a, 0 0 40px rgba(212, 165, 116, 0.4), inset 0 -6px 10px rgba(0,0,0,0.2); }
+    50% { box-shadow: 0 0 30px #f0c98a, 0 0 60px rgba(240, 201, 138, 0.7), inset 0 -6px 10px rgba(0,0,0,0.2); }
   }
 
   .key.correct {
@@ -594,72 +631,217 @@ function ticksToDuration(ticks, ppq) {
 }
 
 // ============================================================
-// AUDIO (sintetizador simple para feedback)
+// SINTETIZADOR DE PIANO REALISTA
+// Usa síntesis aditiva con armónicos, inarmonicidad,
+// envolvente ADSR tipo piano y ruido de macillo.
 // ============================================================
 const audio = {
   ctx: null,
   master: null,
+  reverbBus: null,
+  activeVoices: new Map(),
 
   init() {
     if (this.ctx) return;
     try {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Master bus con compresor suave
+      const compressor = this.ctx.createDynamicsCompressor();
+      compressor.threshold.value = -18;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 3;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.25;
+
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.18;
+      this.master.gain.value = 0.55;
+      
+      // Reverb por convolución para dar "cuerpo" al piano
       const reverb = this.ctx.createConvolver();
-      const len = this.ctx.sampleRate * 1.2;
+      const len = this.ctx.sampleRate * 2.2;
       const buf = this.ctx.createBuffer(2, len, this.ctx.sampleRate);
       for (let ch = 0; ch < 2; ch++) {
         const data = buf.getChannelData(ch);
         for (let i = 0; i < len; i++) {
-          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+          // Decaimiento exponencial para reverb natural
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.8);
         }
       }
       reverb.buffer = buf;
-      const wet = this.ctx.createGain();
-      wet.gain.value = 0.25;
-      this.master.connect(this.ctx.destination);
+      
+      const dryGain = this.ctx.createGain();
+      dryGain.gain.value = 0.72;
+      const wetGain = this.ctx.createGain();
+      wetGain.gain.value = 0.28;
+      
+      // Ruteo: master -> [dry + reverb -> wet] -> compressor -> destination
+      this.master.connect(dryGain);
       this.master.connect(reverb);
-      reverb.connect(wet);
-      wet.connect(this.ctx.destination);
+      reverb.connect(wetGain);
+      
+      dryGain.connect(compressor);
+      wetGain.connect(compressor);
+      compressor.connect(this.ctx.destination);
     } catch (e) {
       console.warn('Audio init failed', e);
     }
   },
 
-  playNote(midi, duration = 0.6) {
+  playNote(midi, velocity) {
+    velocity = velocity || 0.7;
     this.init();
     if (!this.ctx) return;
     if (this.ctx.state === 'suspended') this.ctx.resume();
 
     const freq = 440 * Math.pow(2, (midi - 69) / 12);
     const now = this.ctx.currentTime;
+    
+    // Detener voz anterior de la misma nota si existe
+    if (this.activeVoices.has(midi)) {
+      const old = this.activeVoices.get(midi);
+      try { old.forEach(n => n.stop(now + 0.05)); } catch (e) {}
+      this.activeVoices.delete(midi);
+    }
 
-    const osc1 = this.ctx.createOscillator();
-    osc1.type = 'triangle';
-    osc1.frequency.value = freq;
+    // === ARMÓNICOS DEL PIANO ===
+    // Amplitudes relativas aproximadas (varían según el registro)
+    // El piano tiene espectro rico con amplitudes decrecientes
+    const register = midi; // 21 (A0) a 108 (C8)
+    let harmonics;
+    if (register < 48) {
+      // Registro grave: más armónicos, más "cuerpo"
+      harmonics = [
+        { ratio: 1, gain: 1.0, type: 'sawtooth' },
+        { ratio: 2, gain: 0.55, type: 'sine' },
+        { ratio: 3, gain: 0.32, type: 'sine' },
+        { ratio: 4, gain: 0.18, type: 'sine' },
+        { ratio: 5, gain: 0.11, type: 'sine' },
+        { ratio: 6, gain: 0.07, type: 'sine' },
+        { ratio: 8, gain: 0.04, type: 'sine' }
+      ];
+    } else if (register < 72) {
+      // Registro medio: balance óptimo
+      harmonics = [
+        { ratio: 1, gain: 1.0, type: 'triangle' },
+        { ratio: 2, gain: 0.50, type: 'sine' },
+        { ratio: 3, gain: 0.22, type: 'sine' },
+        { ratio: 4, gain: 0.13, type: 'sine' },
+        { ratio: 5, gain: 0.08, type: 'sine' },
+        { ratio: 6, gain: 0.05, type: 'sine' }
+      ];
+    } else {
+      // Registro agudo: menos armónicos, más puro
+      harmonics = [
+        { ratio: 1, gain: 1.0, type: 'triangle' },
+        { ratio: 2, gain: 0.35, type: 'sine' },
+        { ratio: 3, gain: 0.12, type: 'sine' },
+        { ratio: 4, gain: 0.05, type: 'sine' }
+      ];
+    }
+    
+    // Coeficiente de inarmonicidad (cuerdas más cortas = más inarmónicas)
+    // Aumenta en registros agudos
+    const B = midi > 60 ? 0.0004 : 0.0002;
+    
+    // === ENVOLVENTE ADSR TIPO PIANO ===
+    // Piano: ataque muy rápido, decaimiento en dos etapas, sustain bajo, release largo
+    const velScale = 0.4 + velocity * 0.6;
+    const attackTime = 0.004;
+    const decay1Time = 0.12;           // decaimiento rápido inicial
+    const decay1Level = 0.55 * velScale;
+    const decay2Time = 0.5;            // decaimiento lento secundario
+    const sustainLevel = 0.20 * velScale;
+    const releaseTime = 1.4;           // resonancia natural
+    const totalDuration = attackTime + decay1Time + decay2Time + releaseTime;
+    
+    // === GAIN PRINCIPAL DE LA NOTA ===
+    const noteGain = this.ctx.createGain();
+    noteGain.gain.setValueAtTime(0, now);
+    noteGain.gain.linearRampToValueAtTime(velScale, now + attackTime);
+    noteGain.gain.exponentialRampToValueAtTime(Math.max(0.001, decay1Level), now + attackTime + decay1Time);
+    noteGain.gain.exponentialRampToValueAtTime(Math.max(0.001, sustainLevel), now + attackTime + decay1Time + decay2Time);
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, now + totalDuration);
+    
+    // === FILTRO PASA-BAJOS ===
+    // Simula la respuesta del puente y la tabla armónica
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(9000 * velocity, now);
+    filter.frequency.exponentialRampToValueAtTime(2500, now + 0.8);
+    filter.Q.value = 0.4;
+    
+    // === OSCILADORES PARA CADA ARMÓNICO ===
+    const voiceNodes = [];
+    const oscBank = [];
+    for (const h of harmonics) {
+      const osc = this.ctx.createOscillator();
+      osc.type = h.type;
+      // Inarmonicidad: f_n = n * f * sqrt(1 + B * n^2)
+      const inharmFactor = Math.sqrt(1 + B * h.ratio * h.ratio);
+      osc.frequency.value = freq * h.ratio * inharmFactor;
+      
+      // Pequeña variación aleatoria para "humanizar"
+      osc.detune.value = (Math.random() - 0.5) * 3;
+      
+      const hGain = this.ctx.createGain();
+      hGain.gain.value = h.gain;
+      
+      osc.connect(hGain);
+      hGain.connect(filter);
+      osc.start(now);
+      osc.stop(now + totalDuration + 0.1);
+      oscBank.push(osc);
+      voiceNodes.push(osc, hGain);
+    }
+    
+    // === RUIDO DE MACILLO ===
+    // Breve ráfaga de ruido filtrado al inicio (ataque del macillo)
+    const noiseDur = 0.04;
+    const noiseBuf = this.ctx.createBuffer(1, Math.ceil(this.ctx.sampleRate * noiseDur), this.ctx.sampleRate);
+    const noiseData = noiseBuf.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+      // Ruido con decaimiento exponencial
+      noiseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / noiseData.length, 5);
+    }
+    const noiseSrc = this.ctx.createBufferSource();
+    noiseSrc.buffer = noiseBuf;
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 1800 + Math.random() * 1500;
+    noiseFilter.Q.value = 1.5;
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.value = 0.08 * velocity;
+    noiseSrc.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(filter);
+    noiseSrc.start(now);
+    
+    // Conectar filtro -> gain de nota -> master
+    filter.connect(noteGain);
+    noteGain.connect(this.master);
+    
+    voiceNodes.push(filter, noteGain, noiseSrc, noiseFilter, noiseGain);
+    this.activeVoices.set(midi, oscBank);
+    
+    // Limpieza automática
+    setTimeout(() => {
+      this.activeVoices.delete(midi);
+    }, (totalDuration + 0.2) * 1000);
+  },
 
-    const osc2 = this.ctx.createOscillator();
-    osc2.type = 'sine';
-    osc2.frequency.value = freq * 2;
-
-    const gain2 = this.ctx.createGain();
-    gain2.gain.value = 0.15;
-
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.35, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
-
-    osc1.connect(gain);
-    osc2.connect(gain2);
-    gain2.connect(gain);
-    gain.connect(this.master);
-
-    osc1.start(now);
-    osc2.start(now);
-    osc1.stop(now + duration + 0.1);
-    osc2.stop(now + duration + 0.1);
+  stopNote(midi) {
+    // Para detener una nota (no usado en este flujo, pero disponible)
+    if (this.activeVoices.has(midi)) {
+      const oscs = this.activeVoices.get(midi);
+      const now = this.ctx.currentTime;
+      try {
+        oscs.forEach(o => {
+          o.stop(now + 0.1);
+        });
+      } catch (e) {}
+      this.activeVoices.delete(midi);
+    }
   }
 };
 
@@ -691,7 +873,7 @@ async function loadMidiFile(file) {
     renderPiano();
     updateNoteDisplay();
     updateStats();
-    showToast(`Cargado: ${file.name}`, 'success');
+    showToast('Cargado: ' + file.name, 'success');
   } catch (e) {
     console.error(e);
     showToast('Error al procesar el MIDI: ' + e.message, 'error');
@@ -704,9 +886,9 @@ function populateTrackSelector() {
   state.midi.tracks.forEach((track, i) => {
     const opt = document.createElement('option');
     opt.value = i;
-    const name = track.name || `Pista ${i + 1}`;
+    const name = track.name || ('Pista ' + (i + 1));
     const noteCount = track.notes.length;
-    opt.textContent = `${name} (${noteCount} notas)`;
+    opt.textContent = name + ' (' + noteCount + ' notas)';
     if (noteCount === 0) opt.disabled = true;
     select.appendChild(opt);
   });
@@ -769,7 +951,6 @@ function renderScore() {
     return;
   }
 
-  // Verificar que VexFlow esté disponible
   if (typeof Vex === 'undefined' || typeof Vex.Flow === 'undefined') {
     container.innerHTML = '<div class="empty-state"><h3>Error</h3><p>No se pudo cargar la librería VexFlow. Verifica tu conexión a internet.</p></div>';
     return;
@@ -778,7 +959,6 @@ function renderScore() {
   const VF = Vex.Flow;
   const ppq = (state.midi.header && state.midi.header.ppq) || 480;
   
-  // Obtener compás
   let beatsPerBar = 4;
   let beatUnit = 4;
   try {
@@ -795,7 +975,6 @@ function renderScore() {
   
   const ticksPerBar = ppq * 4 * beatsPerBar / beatUnit;
 
-  // Asignar eventos a compases
   const bars = [];
   let maxTick = 0;
   for (const ev of state.events) {
@@ -840,7 +1019,6 @@ function renderScore() {
   }
 
   let y = 20;
-  let eventIdx = 0;
 
   for (let s = 0; s < numStaves; s++) {
     const staveBars = barsToShow.slice(s * barsPerStave, (s + 1) * barsPerStave);
@@ -863,7 +1041,6 @@ function renderScore() {
     }
 
     const notes = [];
-    const isRestFlags = []; // paralelo a notes: true si es silencio
 
     for (let b = 0; b < staveBars.length; b++) {
       const barEvents = staveBars[b];
@@ -871,7 +1048,6 @@ function renderScore() {
         try {
           const rest = new VF.StaveNote({ keys: ['b/4'], duration: 'wr' });
           notes.push(rest);
-          isRestFlags.push(true);
         } catch (e) {
           console.warn('Error creando silencio', e);
         }
@@ -900,8 +1076,6 @@ function renderScore() {
             });
 
             notes.push(note);
-            isRestFlags.push(false);
-            eventIdx++;
           } catch (e) {
             console.warn('Error creando nota', e, ev);
           }
@@ -914,9 +1088,7 @@ function renderScore() {
       continue;
     }
 
-    // Formatear y dibujar
     try {
-      // Intentar FormatAndDraw (más simple y robusto)
       if (typeof VF.Formatter.FormatAndDraw === 'function') {
         VF.Formatter.FormatAndDraw(context, stave, notes, { auto_beam: true });
       } else {
@@ -925,7 +1097,6 @@ function renderScore() {
     } catch (e) {
       console.warn('FormatAndDraw falló, intentando método manual', e);
       try {
-        // Método manual con Voice y Formatter
         const totalBeats = beatsPerBar * staveBars.length;
         const voice = new VF.Voice({ num_beats: totalBeats, beat_value: beatUnit });
         voice.setStrict(false);
@@ -936,19 +1107,14 @@ function renderScore() {
         voice.draw(context, stave);
       } catch (e2) {
         console.error('Error formateando notas', e2);
-        // Último recurso: dibujar sin formatear
         try {
           notes.forEach((note, i) => {
             try {
               note.setContext(context).setStave(stave);
               note.draw();
-            } catch (e3) {
-              console.warn('No se pudo dibujar nota individual', e3);
-            }
+            } catch (e3) {}
           });
-        } catch (e3) {
-          console.error('No se pudieron dibujar las notas', e3);
-        }
+        } catch (e3) {}
       }
     }
 
@@ -956,13 +1122,10 @@ function renderScore() {
   }
 
   // Asignar IDs a las notas renderizadas DESPUÉS del dibujo
-  // Recorrer todos los elementos .vf-stavenote del SVG en orden
-  // y asignar IDs solo a los que NO son silencios
   try {
     const allNoteEls = container.querySelectorAll('.vf-stavenote');
     let realNoteIdx = 0;
     allNoteEls.forEach(el => {
-      // Un silencio tiene la clase 'vf-rest' o contiene un elemento con esa clase
       const isRest = el.classList.contains('vf-rest') || 
                      el.querySelector('.vf-rest') !== null;
       if (!isRest) {
@@ -979,7 +1142,7 @@ function renderScore() {
 }
 
 function highlightCurrentNote() {
-  // Limpiar
+  // Limpiar todas las marcas
   document.querySelectorAll('.vf-stavenote.current-note, .vf-stavenote.played-note').forEach(el => {
     el.classList.remove('current-note', 'played-note');
   });
@@ -992,14 +1155,17 @@ function highlightCurrentNote() {
     if (el) el.classList.add('played-note');
   }
 
-  // Marcar nota actual
-  const el = document.getElementById('vf-note-' + state.currentStep);
-  if (el) {
-    el.classList.add('current-note');
-    if (state.practiceMode) {
-      try {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-      } catch (e) {}
+  // Marcar nota actual (la que se debe tocar)
+  if (state.currentStep < state.events.length) {
+    const el = document.getElementById('vf-note-' + state.currentStep);
+    if (el) {
+      el.classList.add('current-note');
+      // Scroll suave hacia la nota actual
+      if (state.practiceMode) {
+        try {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        } catch (e) {}
+      }
     }
   }
 }
@@ -1195,7 +1361,7 @@ function handleMidiMessage(message) {
   const command = status & 0xf0;
   
   if (command === 0x90 && velocity > 0) {
-    onNotePressed(note, false);
+    onNotePressed(note, false, velocity / 127);
   } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
     onNoteReleased(note, false);
   }
@@ -1240,12 +1406,14 @@ function stopPractice() {
   showToast('Modo práctica desactivado', 'info');
 }
 
-function onNotePressed(midi, isVirtual) {
+function onNotePressed(midi, isVirtual, velocity) {
   audio.init();
   const key = document.querySelector('.key[data-midi="' + midi + '"]');
   if (key) key.classList.add('pressed');
   
-  audio.playNote(midi, 0.8);
+  // Reproducir sonido de piano
+  const vel = velocity || (isVirtual ? 0.7 : 0.7);
+  audio.playNote(midi, vel);
   
   if (!state.practiceMode || !state.events.length) return;
   
@@ -1439,15 +1607,12 @@ async function loadExample() {
 // INICIALIZACIÓN
 // ============================================================
 function init() {
-  // Verificar que las librerías estén cargadas
   function waitForLibs(cb, attempts) {
     attempts = attempts || 0;
     if (attempts > 50) {
       showToast('No se pudieron cargar las librerías. Verifica tu conexión.', 'error');
       return;
     }
-    // @tonejs/midi expone Midi globalmente
-    // VexFlow 1.2.93 expone Vex globalmente
     if (typeof Midi !== 'undefined' && typeof Vex !== 'undefined' && typeof Vex.Flow !== 'undefined') {
       cb();
     } else {
@@ -1464,7 +1629,6 @@ function init() {
     }
   });
 
-  // Event listeners
   document.getElementById('load-midi-btn').addEventListener('click', () => {
     document.getElementById('midi-file-input').click();
   });
@@ -1472,7 +1636,7 @@ function init() {
   document.getElementById('midi-file-input').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) loadMidiFile(file);
-    e.target.value = ''; // permite recargar el mismo archivo
+    e.target.value = '';
   });
 
   document.getElementById('load-example-btn').addEventListener('click', loadExample);
@@ -1502,7 +1666,6 @@ function init() {
     if (e.target.id === 'midi-modal') hideMidiModal();
   });
 
-  // Resize observer para re-renderizar el pentagrama
   let resizeTimer;
   const ro = new ResizeObserver(() => {
     if (!state.events.length) return;
@@ -1511,7 +1674,6 @@ function init() {
   });
   ro.observe(document.getElementById('score-container'));
 
-  // Atajos de teclado
   document.addEventListener('keydown', (e) => {
     if (e.code === 'Space' && state.events.length && !e.target.matches('input, select, textarea')) {
       e.preventDefault();
