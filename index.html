@@ -539,6 +539,19 @@ function computeDensityGapSplit(events) {
   return bestSplit;
 }
 
+// Auto-apply smart split on load: always use voice-tracking.
+// The 'División inteligente' button now toggles BACK to fixed split.
+function autoSmartSplit() {
+  state.smartSplitOn = true;
+  const result = computeVoiceTrackSplit(state.events);
+  state.splitResult = result;
+  if (result.mode === 'fixed') {
+    state.splitPoint = result.splitPoint;
+  }
+  document.getElementById('smart-btn').classList.add('on');
+  applySplit();
+}
+
 function toggleSmartSplit() {
   if (!state.events.length) { showToast('Carga un MIDI primero', 'info'); return; }
   state.smartSplitOn = !state.smartSplitOn;
@@ -548,8 +561,7 @@ function toggleSmartSplit() {
     state.splitResult = result;
     btn.classList.add('on');
     if (result.mode === 'voice') {
-      const lo = Math.min(...Object.values(result.voiceAvg).filter(v => v > -Infinity));
-      showToast('División inteligente: ' + result.voiceCount + ' voces detectadas y separadas por trayectoria', 'success');
+      showToast('División inteligente: ' + result.voiceCount + ' voces por trayectoria', 'success');
     } else {
       state.splitPoint = result.splitPoint;
       showToast('División inteligente: corte en ' + midiToName(state.splitPoint), 'success');
@@ -558,7 +570,7 @@ function toggleSmartSplit() {
     state.splitPoint = 60;
     state.splitResult = null;
     btn.classList.remove('on');
-    showToast('División fija restaurada (C4)', 'info');
+    showToast('División fija (C4)', 'info');
   }
   applySplit();
   renderScore();
@@ -676,10 +688,9 @@ async function loadMidiFile(file) {
       if(ts&&ts.length&&ts[0].timeSignature){state.beatsPerBar=ts[0].timeSignature[0];state.beatUnit=ts[0].timeSignature[1];}
     } catch(e){}
     state.ticksPerBar = state.ppq*4*state.beatsPerBar/state.beatUnit;
-    // reset smart split
-    state.smartSplitOn=false; state.splitPoint=60; state.splitResult=null;
-    document.getElementById('smart-btn').classList.remove('on');
     populateTrackSelector(); selectBestTrack(); prepareEvents();
+    // Auto-apply smart voice-tracking split on every load
+    autoSmartSplit();
     renderScore(); renderPiano(); updateNoteDisplay(); updateStats();
     showToast('Cargado: '+file.name,'success');
     startPractice();
@@ -985,15 +996,21 @@ function highlightCurrentNote(){
     });
   }
   if(step<state.events.length){
+    let scrollTarget=null;
     ['treble','bass'].forEach(clef=>{
       const el=document.getElementById('vf-note-'+step+'-'+clef);
       if(el){
         el.classList.add('current-note');
-        if(state.mode==='practice'&&state.practiceActive){
-          try{el.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});}catch(e){}
-        }
+        // Prefer scrolling to a real note (has pitches) over a rest
+        const ev=state.events[step];
+        const hasNote=(clef==='treble'&&ev.treble&&ev.treble.length>0)||
+                      (clef==='bass'  &&ev.bass  &&ev.bass.length>0);
+        if(hasNote&&!scrollTarget) scrollTarget=el;
       }
     });
+    if(scrollTarget&&state.mode==='practice'&&state.practiceActive){
+      try{scrollTarget.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});}catch(e){}
+    }
   }
 }
 
@@ -1377,10 +1394,10 @@ function init(){
     stopTimedPlay();stopPractice();
     state.currentStep=0;state.timedStepIndex=0;
     state.stats={correct:0,errors:0,excellent:0,good:0,fair:0,poor:0};state.gradeHistory=[];
-    state.smartSplitOn=false;state.splitPoint=60;state.splitResult=null;
-    document.getElementById('smart-btn').classList.remove('on');
     state.expectedPitches.clear();state.pressedPitches.clear();
-    prepareEvents();renderScore();renderPiano();updateNoteDisplay();updateStats();updateGradeBadge();
+    prepareEvents();
+    autoSmartSplit();
+    renderScore();renderPiano();updateNoteDisplay();updateStats();updateGradeBadge();
     if(state.mode==='practice'&&state.events.length)startPractice();
   });
   document.getElementById('connect-midi-btn').addEventListener('click',connectMidi);
