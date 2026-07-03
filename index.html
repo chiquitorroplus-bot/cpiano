@@ -389,10 +389,9 @@ const state = {
 // ─────────────────────────────────────────────
 // UTILS
 // ─────────────────────────────────────────────
-// midiToName: uses GarageBand/Ableton convention where middle C = C3 (midi 60).
-// Standard MIDI convention is C4=60, but GB/most DAWs display C3=60.
-// Formula: oct = floor(midi/12) - 2
-function midiToName(m) { return NOTE_NAMES[m%12] + (Math.floor(m/12)-2); }
+// midiToName: standard convention C4=60 (midi//12 - 1).
+// midi=36->C2, midi=48->C3, midi=60->C4
+function midiToName(m) { return NOTE_NAMES[m%12] + (Math.floor(m/12)-1); }
 function isBlackKey(m) { return SHARP_PCS.has(m%12); }
 
 // midiToVFKey: VexFlow positions notes using STANDARD octave (C4=60 = "c/4").
@@ -812,13 +811,9 @@ function renderScore(){
     return;
   }
 
-  // ── Per-row draw logs — SEPARATE for treble and bass ──
-  // KEY FIX: VexFlow writes all treble .vf-stavenote elements first,
-  // then all bass elements (because drawVoice is called treble-first,
-  // bass-second). So we keep two independent logs and concatenate them
-  // in the same order when assigning DOM IDs.
-  const trebleLog = [];   // filled during note-building
-  const bassLog   = [];
+  // rowLogs[r] = { treble: [{eventIdx}...], bass: [{eventIdx}...] }
+  // Matches VexFlow DOM order: per row, treble elements come before bass.
+  const rowLogs = [];
 
   for (let row = 0; row < numRows; row++) {
     const rowBars = bars.slice(row * BARS_PER_ROW, (row + 1) * BARS_PER_ROW);
@@ -852,60 +847,65 @@ function renderScore(){
       } catch (e) { console.warn('Connector', e); }
     } catch (e) { console.error('Stave error', e); continue; }
 
-    // ── Build note arrays — log treble and bass SEPARATELY ──
+    // ── Build note arrays, logging in per-row order ──
     const trebleNotes = [], bassNotes = [];
+    const rowLog = { treble: [], bass: [] };
 
     for (const barEvs of rowBars) {
       if (!barEvs.length) {
-        // Empty bar: whole rests
         const tr = makeRest('treble', 'wr');
         const br = makeRest('bass',   'wr');
-        if (tr) { trebleNotes.push(tr); trebleLog.push({ eventIdx: null }); }
-        if (br) { bassNotes.push(br);   bassLog.push({ eventIdx: null }); }
+        if (tr) { trebleNotes.push(tr); rowLog.treble.push({ eventIdx: null }); }
+        if (br) { bassNotes.push(br);   rowLog.bass.push({ eventIdx: null }); }
       } else {
         for (const ev of barEvs) {
           const evIdx = state.events.indexOf(ev);
           const dur   = ticksToDur(ev.durationTicks, ppq);
 
-          // Treble
+          // Treble note or rest
           if (ev.treble.length > 0) {
             const tn = makeNote(ev.treble, dur);
-            if (tn) { trebleNotes.push(tn); trebleLog.push({ eventIdx: evIdx }); }
+            if (tn) { trebleNotes.push(tn); rowLog.treble.push({ eventIdx: evIdx }); }
           } else {
             const tr = makeRest('treble', dur);
-            if (tr) { trebleNotes.push(tr); trebleLog.push({ eventIdx: evIdx }); }
+            if (tr) { trebleNotes.push(tr); rowLog.treble.push({ eventIdx: evIdx }); }
           }
 
-          // Bass
+          // Bass note or rest
           if (ev.bass.length > 0) {
             const bn = makeNote(ev.bass, dur);
-            if (bn) { bassNotes.push(bn); bassLog.push({ eventIdx: evIdx }); }
+            if (bn) { bassNotes.push(bn); rowLog.bass.push({ eventIdx: evIdx }); }
           } else {
             const br = makeRest('bass', dur);
-            if (br) { bassNotes.push(br); bassLog.push({ eventIdx: evIdx }); }
+            if (br) { bassNotes.push(br); rowLog.bass.push({ eventIdx: evIdx }); }
           }
         }
       }
     }
 
-    // Draw treble THEN bass (this order determines DOM element order)
+    rowLogs.push(rowLog);
+
+    // Draw treble THEN bass — VexFlow appends SVG elements in this order
     drawVoice(ctx, trebleStave, trebleNotes, BPB * rowBars.length, BU, STAVE_W);
     drawVoice(ctx, bassStave,   bassNotes,   BPB * rowBars.length, BU, STAVE_W);
   }
 
-  // ── Assign IDs — walk DOM in order: all treble els, then all bass els ──
-  // VexFlow appends elements in call order: all treble notes first (across
-  // all rows), then all bass notes. Our trebleLog + bassLog mirror that.
+  // ── Assign IDs ──
+  // VexFlow appends .vf-stavenote elements per drawVoice() call.
+  // Order: treble-row0, bass-row0, treble-row1, bass-row1 ...
+  // rowLog mirrors this: for each row [trebleEntries..., bassEntries...]
   try {
-    const allEls   = Array.from(container.querySelectorAll('.vf-stavenote'));
-    const combined = [
-      ...trebleLog.map(l => ({ ...l, clef: 'treble' })),
-      ...bassLog.map(l   => ({ ...l, clef: 'bass'   }))
-    ];
-    const minLen = Math.min(allEls.length, combined.length);
+    const allEls = Array.from(container.querySelectorAll('.vf-stavenote'));
+    // Build combined log in true DOM order: per-row, treble then bass
+    const domLog = [];
+    for (let r = 0; r < rowLogs.length; r++) {
+      for (const entry of rowLogs[r].treble) domLog.push({ ...entry, clef: 'treble' });
+      for (const entry of rowLogs[r].bass)   domLog.push({ ...entry, clef: 'bass' });
+    }
+    const minLen = Math.min(allEls.length, domLog.length);
     for (let i = 0; i < minLen; i++) {
       const el   = allEls[i];
-      const info = combined[i];
+      const info = domLog[i];
       if (info.eventIdx !== null) {
         el.setAttribute('id', 'vf-note-' + info.eventIdx + '-' + info.clef);
         el.dataset.eventIndex = info.eventIdx;
