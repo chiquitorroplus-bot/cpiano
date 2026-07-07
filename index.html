@@ -714,15 +714,34 @@ function renderScore(){
         if(tr){TN.push(tr);rowLogT.push(null);}  // clef already passed in mkRest
         if(br){BN.push(br);rowLogB.push(null);}
       }else{
+        // Check if this bar has ANY notes in each clef
+        const barHasTreble=barEvs.some(ev=>ev.treble.length>0);
+        const barHasBass  =barEvs.some(ev=>ev.bass.length>0);
         for(const ev of barEvs){
           const idx=S.events.indexOf(ev);
           const dur=toDur(ev.durTicks,ppq);
-          // Treble — pass clef:'treble' so VexFlow positions notes correctly
-          if(ev.treble.length>0){const n=mkNote(ev.treble,dur,'treble');if(n){TN.push(n);rowLogT.push(idx);}}
-          else{const n=mkRest('treble',dur);if(n){TN.push(n);rowLogT.push(null);}}
-          // Bass — pass clef:'bass' so VexFlow positions notes correctly on bass staff
-          if(ev.bass.length>0){const n=mkNote(ev.bass,dur,'bass');if(n){BN.push(n);rowLogB.push(idx);}}
-          else{const n=mkRest('bass',dur);if(n){BN.push(n);rowLogB.push(null);}}
+          // Treble note or rest-per-event (only if treble has notes in this bar)
+          if(ev.treble.length>0){
+            const n=mkNote(ev.treble,dur,'treble');if(n){TN.push(n);rowLogT.push(idx);}
+          }else if(barHasTreble){
+            // Treble has notes elsewhere in bar but not this event: fill with rest
+            const n=mkRest('treble',dur);if(n){TN.push(n);rowLogT.push(null);}
+          }
+          // Bass note or rest-per-event (only if bass has notes in this bar)
+          if(ev.bass.length>0){
+            const n=mkNote(ev.bass,dur,'bass');if(n){BN.push(n);rowLogB.push(idx);}
+          }else if(barHasBass){
+            // Bass has notes elsewhere in bar but not this event: fill with rest
+            const n=mkRest('bass',dur);if(n){BN.push(n);rowLogB.push(null);}
+          }
+        }
+        // If entire bar has no treble notes: one whole-bar rest
+        if(!barHasTreble){
+          const n=mkRest('treble','wr');if(n){TN.push(n);rowLogT.push(null);}
+        }
+        // If entire bar has no bass notes: one whole-bar rest
+        if(!barHasBass){
+          const n=mkRest('bass','wr');if(n){BN.push(n);rowLogB.push(null);}
         }
       }
     }
@@ -731,42 +750,45 @@ function renderScore(){
     drawVoice(ctx,TS,TN,bpb*rowBars.length,bu,W-40);
     drawVoice(ctx,BS,BN,bpb*rowBars.length,bu,W-40);
 
-    // ── Draw barlines connecting treble and bass staves ──
-    // VexFlow draws barlines per-stave automatically, but we need vertical
-    // lines that span both staves (treble bottom to bass bottom).
-    // We calculate the x position of each bar boundary and draw SVG lines.
+    // ── Draw barlines spanning the gap between the two staves ──
+    // VexFlow already draws barlines within each stave.
+    // We draw lines only in the vertical gap between treble bottom and bass top,
+    // so barlines appear continuous from top of treble to bottom of bass.
+    //   Treble bottom line y = yT + 40
+    //   Bass top line y      = yB
+    //   Gap height           = yB - (yT+40)
     try{
       const svgEl=C.querySelector('svg');
       if(svgEl){
-        // The usable stave width after clef/time-sig padding
-        const clefW=r===0?66:28; // approx width used by clef+time sig on row 0, clef only on others
-        const noteW=W-40-clefW;  // width available for notes
-        const barW=noteW/rowBars.length;
-        const x0=20+clefW; // left edge of note area
-        // Top of treble staff top line, bottom of bass staff bottom line
-        const lineTop=yT;
-        const lineBot=yB+40;
+        const gapTop=yT+40;   // bottom of treble staff
+        const gapBot=yB;      // top of bass staff
+        // Also draw full-height lines (treble top -> bass bottom) for all barlines
+        const fullTop=yT;
+        const fullBot=yB+40;
+        // Approximate x positions of barlines.
+        // VexFlow places them at the end of each bar's note area.
+        // We use the stave width minus right margin, divided evenly.
+        const clefW=r===0?72:30; // space taken by clef+timesig (row 0) or clef only
+        const usableW=W-40-clefW;
+        const barW=usableW/rowBars.length;
+        const x0=20+clefW;
+        const drawLine=(x,y1,y2,sw)=>{
+          const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+          ln.setAttribute('x1',x);ln.setAttribute('y1',y1);
+          ln.setAttribute('x2',x);ln.setAttribute('y2',y2);
+          ln.setAttribute('stroke','#2a1f15');ln.setAttribute('stroke-width',sw||'1.2');
+          svgEl.appendChild(ln);
+        };
+        // Internal barlines (between bars, not at the edges)
         for(let b=1;b<rowBars.length;b++){
           const bx=Math.round(x0+b*barW);
-          const line=document.createElementNS('http://www.w3.org/2000/svg','line');
-          line.setAttribute('x1',bx);line.setAttribute('y1',lineTop);
-          line.setAttribute('x2',bx);line.setAttribute('y2',lineBot);
-          line.setAttribute('stroke','#2a1f15');line.setAttribute('stroke-width','1.2');
-          line.setAttribute('class','grand-barline');
-          svgEl.appendChild(line);
+          drawLine(bx,fullTop,fullBot,'1.2');
         }
-        // Final double barline at end of last row
-        // (only on the last row of the piece)
+        // Double barline at end of last row of the piece
         if(r===nRows-1){
           const bx=W-21;
-          ['0','3'].forEach((dx,i)=>{
-            const line=document.createElementNS('http://www.w3.org/2000/svg','line');
-            line.setAttribute('x1',String(bx-i*3));line.setAttribute('y1',lineTop);
-            line.setAttribute('x2',String(bx-i*3));line.setAttribute('y2',lineBot);
-            line.setAttribute('stroke','#2a1f15');
-            line.setAttribute('stroke-width',i===0?'1.2':'2.8');
-            svgEl.appendChild(line);
-          });
+          drawLine(bx,fullTop,fullBot,'1.2');      // thin line
+          drawLine(bx+3,fullTop,fullBot,'2.8');    // thick line
         }
       }
     }catch(e){console.warn('Barline err',e);}
