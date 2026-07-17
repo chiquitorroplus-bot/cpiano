@@ -196,6 +196,43 @@ header{z-index:2;padding:12px 22px;display:flex;align-items:center;justify-conte
   100%{transform:scale(1)}
 }
 .btn.metro.on svg{animation:metronome-tick .12s ease}
+/* playback / transport */
+.transport{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.btn.transp{padding:6px 10px}
+.btn.transp svg{width:12px;height:12px}
+.btn.playback{background:linear-gradient(135deg,#1a3a5a,#0a2a4a);border-color:#2a6aaa;color:#80c0f0}
+.btn.playback:hover{background:linear-gradient(135deg,#2a5a8a,#1a4a7a);color:#c0e8ff}
+.btn.playback.on{background:linear-gradient(135deg,#5a1010,#3a0808);border-color:#8a3030;color:#f08080}
+/* segment selector */
+.seg-ctrl{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:5px 10px;background:rgba(212,165,116,0.08);border:1px solid var(--border);
+  border-radius:6px;font-size:11px;color:var(--dim)}
+.seg-ctrl label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:1px}
+.seg-ctrl input[type=number]{width:44px;background:var(--bg3);color:var(--fg);
+  border:1px solid var(--borderS);border-radius:4px;padding:3px 5px;
+  font-family:'JetBrains Mono',monospace;font-size:12px;text-align:center}
+.seg-ctrl input[type=number]:focus{outline:1px solid var(--gold);border-color:var(--gold)}
+.seg-active{color:var(--gold2);font-weight:600}
+/* final score overlay */
+.fscore{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(10px);
+  z-index:200;display:none;align-items:center;justify-content:center}
+.fscore.on{display:flex}
+.fscore-box{background:var(--bg3);border:1px solid var(--borderS);border-radius:12px;
+  padding:32px 40px;text-align:center;max-width:400px;width:90%;
+  box-shadow:0 30px 60px rgba(0,0,0,.6)}
+.fscore-box h2{font-family:'DM Serif Display',serif;font-size:28px;color:var(--fg);margin-bottom:6px}
+.fscore-box .score-num{font-family:'JetBrains Mono',monospace;font-size:56px;
+  color:var(--gold2);line-height:1;margin:12px 0}
+.fscore-box .score-detail{font-size:12px;color:var(--dim);line-height:1.8;margin-bottom:20px}
+.grade-bar{display:flex;gap:8px;justify-content:center;margin-bottom:20px;flex-wrap:wrap}
+.gb-item{display:flex;flex-direction:column;align-items:center;gap:2px;
+  background:rgba(255,255,255,.04);border-radius:6px;padding:8px 12px;min-width:60px}
+.gb-item .gb-val{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700}
+.gb-item .gb-lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.gb-item.excellent .gb-val{color:#4fc97e}
+.gb-item.good      .gb-val{color:var(--green)}
+.gb-item.fair      .gb-val{color:var(--orange)}
+.gb-item.poor      .gb-val{color:var(--red)}
 </style>
 </head>
 <body>
@@ -254,15 +291,34 @@ header{z-index:2;padding:12px 22px;display:flex;align-items:center;justify-conte
         <button class="mtab" id="tab-g" onclick="setMode('guided')">Guiada</button>
         <button class="mtab" id="tab-t" onclick="setMode('timed')">Con tiempo</button>
       </div>
+      <!-- Playback button (all modes) -->
+      <button class="btn playback" id="midiplaybtn" onclick="toggleMidiPlayback()" title="Reproducir MIDI">
+        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        Reproducir
+      </button>
+      <button class="btn transp" onclick="toggleSegCtrl()" title="Ensayar segmento" id="segbtn">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        Segmento
+      </button>
       <div id="tctrl" style="display:none;align-items:center;gap:7px;flex-wrap:wrap">
         <div class="spd">
           <label>Vel.</label>
           <input type="range" id="spslider" min="25" max="150" value="100" step="5">
           <span class="spdval" id="spval">100%</span>
         </div>
-        <button class="btn play" id="playbtn" onclick="togglePlay()">
-          <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>Play
-        </button>
+        <!-- Transport buttons -->
+        <div class="transport">
+          <button class="btn transp" id="restartbtn" onclick="restartPlayback()" title="Ir al inicio">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="19,20 9,12 19,4"/><rect x="5" y="4" width="3" height="16"/></svg>
+          </button>
+          <button class="btn play" id="playbtn" onclick="togglePlay()">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor" id="play-icon"><polygon points="5,3 19,12 5,21"/></svg>
+            <span id="play-label">Play</span>
+          </button>
+          <button class="btn transp" id="pausebtn" onclick="pausePlayback()" title="Pausar" style="display:none">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          </button>
+        </div>
         <button class="btn metro" id="metrobtn" onclick="toggleMetro()" title="Metrónomo">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="12,2 22,20 2,20" stroke-linejoin="round"/>
@@ -271,6 +327,16 @@ header{z-index:2;padding:12px 22px;display:flex;align-items:center;justify-conte
           </svg>
           Metrónomo
         </button>
+      </div>
+      <!-- Segment selector — visible in all modes -->
+      <div class="seg-ctrl" id="segctrl" style="display:none">
+        <label>Compases</label>
+        <input type="number" id="seg-from" min="1" value="1" title="Compás inicial">
+        <span style="color:var(--muted)">—</span>
+        <input type="number" id="seg-to" min="1" value="" title="Compás final">
+        <button class="btn transp" id="seg-apply" onclick="applySegment()" title="Aplicar segmento" style="padding:4px 8px;font-size:11px">✓</button>
+        <button class="btn transp" id="seg-clear" onclick="clearSegment()" title="Quitar segmento" style="padding:4px 8px;font-size:11px">✕</button>
+        <span class="seg-active" id="seg-label"></span>
       </div>
       <div class="tsel"><select id="trksel" title="Pista"><option value="">— Pista —</option></select></div>
       <button class="btn" id="midibtn">
@@ -297,6 +363,20 @@ header{z-index:2;padding:12px 22px;display:flex;align-items:center;justify-conte
   </div>
 </div>
 <div class="ripples" id="ripples"></div>
+<div class="fscore" id="fscore">
+  <div class="fscore-box">
+    <h2>Resultado final</h2>
+    <div class="score-num" id="fs-pct">—</div>
+    <div class="score-detail" id="fs-detail"></div>
+    <div class="grade-bar">
+      <div class="gb-item excellent"><span class="gb-val" id="fs-exc">0</span><span class="gb-lbl">⭐ Excel.</span></div>
+      <div class="gb-item good"><span class="gb-val" id="fs-good">0</span><span class="gb-lbl">✓ Bueno</span></div>
+      <div class="gb-item fair"><span class="gb-val" id="fs-fair">0</span><span class="gb-lbl">~ Regular</span></div>
+      <div class="gb-item poor"><span class="gb-val" id="fs-poor">0</span><span class="gb-lbl">✗ Malo</span></div>
+    </div>
+    <button class="btn primary" onclick="document.getElementById('fscore').classList.remove('on')">Cerrar</button>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -370,7 +450,13 @@ const S={
   timedWait:false, timedStep:0,
   grades:[], stats:{ok:0,err:0,excellent:0,good:0,fair:0,poor:0},
   ppq:480, tpb:1920, bpb:4, bu:4,
-  plo:36, phi:84
+  plo:36, phi:84,
+  // Segment
+  segFrom:0, segTo:Infinity, segActive:false,
+  // MIDI playback
+  pbOn:false, pbStep:0, pbTimers:[],
+  // Timed mode: non-stop (lenient) 
+  timedNotes:[]  // [{step, grade, offMs}] collected during run
 };
 
 // ═══════════════════════════════════════════════════════
@@ -444,6 +530,109 @@ const AU={
     setTimeout(()=>this.voices.delete(midi),(tot+.5)*1000);
   }
 };
+
+// ═══════════════════════════════════════════════════════
+// MIDI PLAYBACK — synthesize all notes in sequence
+// ═══════════════════════════════════════════════════════
+function toggleMidiPlayback(){
+  if(S.pbOn)stopMidiPlayback();
+  else startMidiPlayback();
+}
+function startMidiPlayback(){
+  if(!S.events.length){toast('Carga un MIDI primero','info');return;}
+  AU.init();
+  stopMidiPlayback(); // clear any previous
+  S.pbOn=true;
+  const btn=document.getElementById('midiplaybtn');
+  btn.classList.add('on');
+  btn.innerHTML='<svg class="icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Detener';
+
+  const bpm=getMidiBPM()*S.timedSpeed;
+  const secPerTick=60/(bpm*S.ppq);
+
+  // Filter events to segment
+  const evs=getSegmentEvents();
+  const t0=evs.length?evs[0].ticks:0;
+
+  S.pbTimers=[];
+  evs.forEach(ev=>{
+    const delay=(ev.ticks-t0)*secPerTick*1000;
+    const tid=setTimeout(()=>{
+      if(!S.pbOn)return;
+      ev.pitches.forEach(p=>AU.play(p,0.65));
+      // Highlight on score
+      S.pbStep=S.events.indexOf(ev);
+      highlightStep();updDisplay();updStats();
+    },delay);
+    S.pbTimers.push(tid);
+  });
+  // Stop at end
+  const lastEv=evs[evs.length-1];
+  const totalMs=lastEv?(lastEv.ticks-t0+lastEv.durTicks)*secPerTick*1000+200:0;
+  const endTid=setTimeout(()=>stopMidiPlayback(),totalMs);
+  S.pbTimers.push(endTid);
+}
+function stopMidiPlayback(){
+  S.pbOn=false;
+  S.pbTimers.forEach(t=>clearTimeout(t));
+  S.pbTimers=[];
+  const btn=document.getElementById('midiplaybtn');
+  btn.classList.remove('on');
+  btn.innerHTML='<svg class="icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Reproducir';
+}
+
+// ═══════════════════════════════════════════════════════
+// SEGMENT SELECTION
+// ═══════════════════════════════════════════════════════
+function toggleSegCtrl(){
+  const el=document.getElementById('segctrl');
+  const visible=el.style.display!=='none';
+  el.style.display=visible?'none':'flex';
+  if(!visible&&S.events.length){
+    const totalBars=Math.ceil((S.events[S.events.length-1].ticks+1)/S.tpb);
+    document.getElementById('seg-to').value=totalBars;
+    document.getElementById('seg-to').max=totalBars;
+    document.getElementById('seg-from').max=totalBars;
+  }
+}
+function applySegment(){
+  const from=parseInt(document.getElementById('seg-from').value)||1;
+  const to=parseInt(document.getElementById('seg-to').value)||Infinity;
+  S.segFrom=Math.max(0,from-1);   // 0-indexed bar
+  S.segTo=to;                      // 1-indexed bar (inclusive)
+  S.segActive=true;
+  document.getElementById('seg-label').textContent='Compases '+from+'–'+to;
+  toast('Segmento: compases '+from+' a '+to,'info');
+  // Restart current mode within segment
+  if(S.mode==='free')startFree();
+  else if(S.mode==='guided')startGuided();
+  else if(S.mode==='timed'){stopTimed();startTimed();}
+}
+function clearSegment(){
+  S.segFrom=0;S.segTo=Infinity;S.segActive=false;
+  document.getElementById('seg-label').textContent='';
+  toast('Segmento eliminado — pieza completa','info');
+  if(S.mode==='free')startFree();
+  else if(S.mode==='guided')startGuided();
+  else if(S.mode==='timed'){stopTimed();startTimed();}
+}
+function getSegmentEvents(){
+  if(!S.segActive)return S.events;
+  return S.events.filter(ev=>{
+    const bar=ev.barIdx+1; // 1-indexed
+    return bar>S.segFrom&&bar<=S.segTo;
+  });
+}
+function firstSegmentStep(){
+  if(!S.segActive)return 0;
+  const evs=getSegmentEvents();
+  return evs.length?S.events.indexOf(evs[0]):0;
+}
+function lastSegmentStep(){
+  if(!S.segActive)return S.events.length-1;
+  const evs=getSegmentEvents();
+  return evs.length?S.events.indexOf(evs[evs.length-1]):S.events.length-1;
+}
 
 // ═══════════════════════════════════════════════════════
 // METRONOME
@@ -998,8 +1187,10 @@ function setMode(m){
   document.getElementById('tab-f').classList.toggle('on',m==='free');
   document.getElementById('tab-g').classList.toggle('on',m==='guided');
   document.getElementById('tab-t').classList.toggle('on',m==='timed');
+  // timed controls only in timed mode
   document.getElementById('tctrl').style.display=m==='timed'?'flex':'none';
   if(m==='guided'&&S.events.length)startGuided();
+  else if(m==='free')startFree();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1020,9 +1211,10 @@ function startFree(){
 // ═══════════════════════════════════════════════════════
 function startGuided(){
   if(!S.events.length)return;
-  AU.init();S.practiceOn=true;S.step=0;
+  AU.init();S.practiceOn=true;
+  S.step=firstSegmentStep();
   S.stats={ok:0,err:0,excellent:0,good:0,fair:0,poor:0};S.grades=[];
-  S.expected=new Set(S.events[0].pitches);S.pressed.clear();
+  S.expected=new Set(S.events[S.step].pitches);S.pressed.clear();
   highlightStep();hlKeys();updDisplay();updStats();updGrade();
 }
 function stopPractice(){
@@ -1037,9 +1229,24 @@ function togglePlay(){
   if(!S.events.length){toast('Carga un MIDI primero','error');return;}
   S.timedOn?stopTimed():startTimed();
 }
+function restartPlayback(){
+  if(!S.events.length)return;
+  stopTimed();
+  S.timedStep=firstSegmentStep();
+  S.timedPos=S.events[S.timedStep]?S.events[S.timedStep].ticks:0;
+  S.step=S.timedStep;
+  S.timedNotes=[];
+  highlightStep();updDisplay();updStats();
+  startTimed();
+}
+function pausePlayback(){
+  if(S.timedOn)stopTimed();
+}
 function startTimed(){
   AU.init();S.timedOn=true;S.timedWait=false;
-  if(S.timedStep>=S.events.length)resetTimed();
+  const first=firstSegmentStep(),last=lastSegmentStep();
+  if(S.timedStep<first||S.timedStep>last)resetTimed();
+  S.timedNotes=[];
   const btn=document.getElementById('playbtn');
   btn.classList.add('on');
   btn.innerHTML='<svg class="icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Pausa';
@@ -1058,8 +1265,10 @@ function stopTimed(){
   S.expected.clear();
 }
 function resetTimed(){
-  S.timedStep=0;S.timedPos=0;S.step=0;
-  S.stats={ok:0,err:0,excellent:0,good:0,fair:0,poor:0};S.grades=[];
+  S.timedStep=firstSegmentStep();
+  S.timedPos=S.events[S.timedStep]?S.events[S.timedStep].ticks:0;
+  S.step=S.timedStep;
+  S.stats={ok:0,err:0,excellent:0,good:0,fair:0,poor:0};S.grades=[];S.timedNotes=[];
   updStats();updGrade();highlightStep();
 }
 function getBPM(){try{const t=S.midi.header.tempos;if(t&&t.length)return t[0].bpm;}catch(e){}return 120;}
@@ -1077,7 +1286,8 @@ function tick(ts){
       else{timedMiss(ev);break;}
     }else{setExpected(ev);break;}
   }
-  if(S.timedStep>=S.events.length){finishTimed();return;}
+  const last=lastSegmentStep();
+  if(S.timedStep>last){finishTimed();return;}
   S.timedRaf=requestAnimationFrame(tick);
 }
 function setExpected(ev){
@@ -1085,15 +1295,18 @@ function setExpected(ev){
   highlightStep();hlKeys();updDisplay();updStats();
 }
 function timedMiss(ev){
+  // Lenient: don't stop. Mark as missed, advance to next event.
+  S.timedNotes.push({step:S.events.indexOf(ev),grade:'poor',offMs:null});
   S.stats.err++;S.stats.poor++;S.grades.push('poor');
-  gradeToast('poor',ev.pitches.map(noteName).join('+'),null);
   updStats();updGrade();
-  S.timedPos=ev.barIdx*S.tpb;
-  S.timedStep=firstInBar(ev.barIdx);S.step=S.timedStep;
-  S.timedWait=true;
-  S.expected=new Set(S.events[S.timedStep].pitches);
-  highlightStep();hlKeys();updDisplay();updCursor();
-  toast('Compás '+(ev.barIdx+1)+': toca la nota resaltada para continuar','info');
+  // Visual flash on piano keys
+  ev.pitches.forEach(p=>{
+    const k=document.querySelector('.key[data-m="'+p+'"]');
+    if(k){k.classList.add('err');setTimeout(()=>k.classList.remove('err'),350);}
+  });
+  // Advance past this event
+  S.timedStep++;S.step=S.timedStep;
+  S.expected=new Set();S.pressed.clear();
 }
 function firstInBar(bi){
   for(let i=0;i<S.events.length;i++)if(S.events[i].barIdx>=bi)return i;
@@ -1113,8 +1326,25 @@ function updCursor(){
 }
 function finishTimed(){
   stopTimed();
-  const tot=S.grades.length,exc=S.grades.filter(g=>g==='excellent').length;
-  toast('¡Completo! Excelentes: '+exc+'/'+tot+' ('+(tot?Math.round(exc/tot*100):0)+'%)','success');
+  showFinalScore();
+}
+function showFinalScore(){
+  const grades=S.grades;
+  const tot=grades.length;
+  if(!tot){toast('Sin datos de calificación','info');return;}
+  const exc=grades.filter(g=>g==='excellent').length;
+  const good=grades.filter(g=>g==='good').length;
+  const fair=grades.filter(g=>g==='fair').length;
+  const poor=grades.filter(g=>g==='poor').length;
+  const pct=Math.round((exc*100+good*70+fair*40)/tot);
+  const emoji=pct>=90?'🌟':pct>=75?'👏':pct>=50?'💪':'🎯';
+  document.getElementById('fs-pct').textContent=pct+'%';
+  document.getElementById('fs-detail').textContent=emoji+' '+tot+' notas evaluadas — sigue practicando!';
+  document.getElementById('fs-exc').textContent=exc;
+  document.getElementById('fs-good').textContent=good;
+  document.getElementById('fs-fair').textContent=fair;
+  document.getElementById('fs-poor').textContent=poor;
+  document.getElementById('fscore').classList.add('on');
 }
 function gradeOffset(offMs,durMs){
   const p=Math.abs(offMs)/Math.max(durMs,100);
@@ -1151,7 +1381,8 @@ function freeNote(m){
       setTimeout(()=>{
         S.pressed.clear();
         document.querySelectorAll('.key.ok').forEach(e=>e.classList.remove('ok'));
-        if(S.step<S.events.length-1){S.step++;highlightStep();updDisplay();updStats();}
+        const last=lastSegmentStep();
+        if(S.step<last){S.step++;highlightStep();updDisplay();updStats();}
       },300);
     }
   }else{
@@ -1181,8 +1412,9 @@ function guidedNote(m){
 function advGuided(){
   S.step++;S.pressed.clear();
   document.querySelectorAll('.key.exp,.key.ok').forEach(e=>e.classList.remove('exp','ok'));
-  if(S.step>=S.events.length){
-    toast('¡Pieza completa! 🎉','success');S.practiceOn=false;
+  const last=lastSegmentStep();
+  if(S.step>last){
+    toast('¡Segmento completo! 🎉','success');S.practiceOn=false;
     S.expected.clear();highlightStep();updDisplay();return;
   }
   S.expected=new Set(S.events[S.step].pitches);
@@ -1202,9 +1434,13 @@ function timedNote(m){
   const offMs=((S.timedPos-ev.ticks)/tps)*1000,durMs=(ev.durTicks/tps)*1000;
   const grade=S.timedWait?null:gradeOffset(offMs,durMs);
   if(![...S.expected].every(p=>S.pressed.has(p)))return;
-  if(grade){S.stats.ok++;S.stats[grade]++;S.grades.push(grade);
-    gradeToast(grade,ev.pitches.map(noteName).join('+'),offMs);updGrade();}
-  else S.stats.ok++;
+  if(grade){
+    S.stats.ok++;S.stats[grade]++;S.grades.push(grade);
+    S.timedNotes.push({step:S.timedStep,grade,offMs});
+    // Subtle toast only for poor timing, not every note
+    if(grade==='poor'||grade==='fair')gradeToast(grade,ev.pitches.map(noteName).join('+'),offMs);
+    updGrade();
+  }else S.stats.ok++;
   updStats();
   S.timedStep++;S.step=S.timedStep;S.pressed.clear();S.expected.clear();
   document.querySelectorAll('.key.exp,.key.ok').forEach(e=>e.classList.remove('exp','ok'));
@@ -1306,8 +1542,9 @@ function init(){
   document.getElementById('spslider').addEventListener('input',function(){
     S.timedSpeed=parseInt(this.value)/100;
     document.getElementById('spval').textContent=this.value+'%';
-    // Restart metronome scheduling so new tempo takes effect immediately
     if(METRO.on){METRO.beatNum=0;METRO.nextBeat=AU.ctx?AU.ctx.currentTime+0.05:0;}
+    // If playing, restart so tempo change is immediate
+    if(S.pbOn){stopMidiPlayback();startMidiPlayback();}
   });
   document.getElementById('loadbtn').addEventListener('click',()=>document.getElementById('mfile').click());
   document.getElementById('mfile').addEventListener('change',e=>{
