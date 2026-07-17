@@ -250,7 +250,8 @@ header{z-index:2;padding:12px 22px;display:flex;align-items:center;justify-conte
     <div class="ptitle">Teclado · Clic permitido</div>
     <div class="cgroup">
       <div class="mtabs">
-        <button class="mtab on" id="tab-p" onclick="setMode('practice')">Práctica libre</button>
+        <button class="mtab on" id="tab-f" onclick="setMode('free')">Libre</button>
+        <button class="mtab" id="tab-g" onclick="setMode('guided')">Guiada</button>
         <button class="mtab" id="tab-t" onclick="setMode('timed')">Con tiempo</button>
       </div>
       <div id="tctrl" style="display:none;align-items:center;gap:7px;flex-wrap:wrap">
@@ -363,7 +364,7 @@ const S={
   events:[], step:0,
   midiAccess:null, midiIn:null,
   expected:new Set(), pressed:new Set(),
-  mode:'practice', practiceOn:false,
+  mode:'free', practiceOn:false,
   timedOn:false, timedPos:0, timedSpeed:1,
   timedTs:null, timedRaf:null,
   timedWait:false, timedStep:0,
@@ -562,7 +563,7 @@ async function loadFile(file){
     fillTrackSel();pickBestTrack();buildEvents();
     renderScore();buildPiano();updDisplay();updStats();
     toast('Cargado: '+file.name,'success');
-    startPractice();
+    setMode('free');startFree();
   }catch(e){console.error(e);toast('Error: '+e.message,'error');}
 }
 
@@ -750,45 +751,53 @@ function renderScore(){
     drawVoice(ctx,TS,TN,bpb*rowBars.length,bu,W-40);
     drawVoice(ctx,BS,BN,bpb*rowBars.length,bu,W-40);
 
-    // ── Draw barlines spanning the gap between the two staves ──
-    // VexFlow already draws barlines within each stave.
-    // We draw lines only in the vertical gap between treble bottom and bass top,
-    // so barlines appear continuous from top of treble to bottom of bass.
-    //   Treble bottom line y = yT + 40
-    //   Bass top line y      = yB
-    //   Gap height           = yB - (yT+40)
+    // ── Draw barlines spanning both staves ──
+    // Use VexFlow Stave API (getYForLine, getX, getWidth) for exact positions.
+    // VexFlow Stave.getYForLine(n): line 0=bottom, line 4=top.
+    // getYForLine(4) = top staff line, getYForLine(0) = bottom staff line.
     try{
       const svgEl=C.querySelector('svg');
       if(svgEl){
-        const gapTop=yT+40;   // bottom of treble staff
-        const gapBot=yB;      // top of bass staff
-        // Also draw full-height lines (treble top -> bass bottom) for all barlines
-        const fullTop=yT;
-        const fullBot=yB+40;
-        // Approximate x positions of barlines.
-        // VexFlow places them at the end of each bar's note area.
-        // We use the stave width minus right margin, divided evenly.
-        const clefW=r===0?72:30; // space taken by clef+timesig (row 0) or clef only
-        const usableW=W-40-clefW;
-        const barW=usableW/rowBars.length;
-        const x0=20+clefW;
+        // Exact staff line positions via VexFlow API
+        // Get all 5 line positions for each stave, take actual min/max y.
+        // This works regardless of VexFlow's line numbering convention.
+        const tYs = [0,1,2,3,4].map(n => TS.getYForLine(n));
+        const bYs = [0,1,2,3,4].map(n => BS.getYForLine(n));
+        const lineTop = Math.min(...tYs);  // topmost pixel of treble staff
+        const lineBot = Math.max(...bYs);  // bottommost pixel of bass staff
+
         const drawLine=(x,y1,y2,sw)=>{
           const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
-          ln.setAttribute('x1',x);ln.setAttribute('y1',y1);
-          ln.setAttribute('x2',x);ln.setAttribute('y2',y2);
-          ln.setAttribute('stroke','#2a1f15');ln.setAttribute('stroke-width',sw||'1.2');
+          ln.setAttribute('x1',x); ln.setAttribute('y1',y1);
+          ln.setAttribute('x2',x); ln.setAttribute('y2',y2);
+          ln.setAttribute('stroke','#2a1f15');
+          ln.setAttribute('stroke-width',sw||'1.2');
+          ln.setAttribute('class','grand-barline');
           svgEl.appendChild(ln);
         };
-        // Internal barlines (between bars, not at the edges)
-        for(let b=1;b<rowBars.length;b++){
-          const bx=Math.round(x0+b*barW);
-          drawLine(bx,fullTop,fullBot,'1.2');
+
+        // Calculate bar x positions.
+        // TS.getX() = left edge of note area (after clef/timesig).
+        // TS.getX() + TS.getNoteStartX() gives start of note area.
+        // End of stave = TS.getX() + TS.getWidth().
+        const noteStartX = TS.getNoteStartX();  // x where notes begin
+        const staveEndX  = TS.getX() + TS.getWidth(); // right edge
+        const noteWidth  = staveEndX - noteStartX;
+        const barWidth   = noteWidth / rowBars.length;
+
+        // Internal barlines between bars
+        for(let b=1; b<rowBars.length; b++){
+          const bx = Math.round(noteStartX + b*barWidth);
+          drawLine(bx, lineTop, lineBot, '1.2');
         }
-        // Double barline at end of last row of the piece
+
+        // Right edge barline (connects both staves)
+        drawLine(staveEndX, lineTop, lineBot, '1.2');
+
+        // Double barline at end of last row
         if(r===nRows-1){
-          const bx=W-21;
-          drawLine(bx,fullTop,fullBot,'1.2');      // thin line
-          drawLine(bx+3,fullTop,fullBot,'2.8');    // thick line
+          drawLine(staveEndX+0, lineTop, lineBot, '1.2');
+          drawLine(staveEndX+3, lineTop, lineBot, '2.8');
         }
       }
     }catch(e){console.warn('Barline err',e);}
@@ -986,16 +995,30 @@ function onMidi(msg){
 // ═══════════════════════════════════════════════════════
 function setMode(m){
   stopTimed();stopPractice();S.mode=m;
-  document.getElementById('tab-p').classList.toggle('on',m==='practice');
+  document.getElementById('tab-f').classList.toggle('on',m==='free');
+  document.getElementById('tab-g').classList.toggle('on',m==='guided');
   document.getElementById('tab-t').classList.toggle('on',m==='timed');
   document.getElementById('tctrl').style.display=m==='timed'?'flex':'none';
-  if(m==='practice'&&S.events.length)startPractice();
+  if(m==='guided'&&S.events.length)startGuided();
 }
 
 // ═══════════════════════════════════════════════════════
-// PRACTICE MODE
+// FREE MODE — play anything, green=correct pitch, red=wrong
+// No step tracking, no forced progression.
 // ═══════════════════════════════════════════════════════
-function startPractice(){
+function startFree(){
+  AU.init();
+  S.stats={ok:0,err:0,excellent:0,good:0,fair:0,poor:0};S.grades=[];
+  S.step=0; S.expected=new Set(); S.pressed.clear();
+  // Highlight first note as reference only (dim, not enforced)
+  highlightStep(); updDisplay(); updStats(); updGrade();
+}
+
+// ═══════════════════════════════════════════════════════
+// GUIDED MODE — advances only when correct notes are played,
+// no time pressure, no penalty for wrong notes (just red flash).
+// ═══════════════════════════════════════════════════════
+function startGuided(){
   if(!S.events.length)return;
   AU.init();S.practiceOn=true;S.step=0;
   S.stats={ok:0,err:0,excellent:0,good:0,fair:0,poor:0};S.grades=[];
@@ -1105,7 +1128,8 @@ function noteOn(m,virtual,vel){
   AU.init();
   const k=document.querySelector('.key[data-m="'+m+'"]');if(k)k.classList.add('pressed');
   AU.play(m,vel||.72);
-  if(S.mode==='practice'){if(!S.practiceOn||!S.events.length)return;practiceNote(m);}
+  if(S.mode==='free'){if(!S.events.length)return;freeNote(m);}
+  else if(S.mode==='guided'){if(!S.practiceOn||!S.events.length)return;guidedNote(m);}
   else if(S.mode==='timed'){if(!S.events.length)return;timedNote(m);}
 }
 function noteOff(m){
@@ -1113,19 +1137,48 @@ function noteOff(m){
   if(k)k.classList.remove('pressed','ok','err');
   S.pressed.delete(m);
 }
-function practiceNote(m){
+// FREE MODE: green if matches any note in current step, red otherwise.
+// Never blocks or advances automatically — purely informational.
+function freeNote(m){
+  S.pressed.add(m);
+  const curEv=S.events[S.step]||null;
+  const k=document.querySelector('.key[data-m="'+m+'"]');
+  if(curEv&&curEv.pitches.includes(m)){
+    if(k){k.classList.add('ok');ripple(k);}
+    S.stats.ok++;
+    // Check if all notes of this step played — advance reference silently
+    if(curEv.pitches.every(p=>S.pressed.has(p))){
+      setTimeout(()=>{
+        S.pressed.clear();
+        document.querySelectorAll('.key.ok').forEach(e=>e.classList.remove('ok'));
+        if(S.step<S.events.length-1){S.step++;highlightStep();updDisplay();updStats();}
+      },300);
+    }
+  }else{
+    if(k)k.classList.add('err');
+    S.stats.err++;
+  }
+  updStats();
+}
+
+// GUIDED MODE: advances only when correct, red flash on wrong but NO penalty/reset.
+function guidedNote(m){
   S.pressed.add(m);
   if(S.expected.has(m)){
     const k=document.querySelector('.key[data-m="'+m+'"]');
     if(k){k.classList.add('ok');ripple(k);}
-    if([...S.expected].every(p=>S.pressed.has(p))){S.stats.ok++;updStats();setTimeout(advPractice,260);}
+    if([...S.expected].every(p=>S.pressed.has(p))){S.stats.ok++;updStats();setTimeout(advGuided,260);}
   }else{
-    const k=document.querySelector('.key[data-m="'+m+'"]');if(k)k.classList.add('err');
-    S.stats.err++;updStats();
-    toast('✗ '+noteName(m)+' — esperaba: '+[...S.expected].map(noteName).join(', '),'error');
+    // Wrong note: red flash only, no toast, no reset, no penalty counter
+    const k=document.querySelector('.key[data-m="'+m+'"]');
+    if(k){
+      k.classList.add('err');
+      setTimeout(()=>k.classList.remove('err'),400);
+    }
+    // Don't count errors, don't toast — just visual feedback
   }
 }
-function advPractice(){
+function advGuided(){
   S.step++;S.pressed.clear();
   document.querySelectorAll('.key.exp,.key.ok').forEach(e=>e.classList.remove('exp','ok'));
   if(S.step>=S.events.length){
@@ -1268,7 +1321,8 @@ function init(){
     S.stats={ok:0,err:0,excellent:0,good:0,fair:0,poor:0};S.grades=[];
     S.expected.clear();S.pressed.clear();
     buildEvents();renderScore();buildPiano();updDisplay();updStats();updGrade();
-    if(S.mode==='practice'&&S.events.length)startPractice();
+    if(S.mode==='free')startFree();
+    else if(S.mode==='guided'&&S.events.length)startGuided();
   });
   document.getElementById('midibtn').addEventListener('click',connectMidi);
   document.getElementById('mcancel').addEventListener('click',()=>document.getElementById('mmodal').classList.remove('on'));
