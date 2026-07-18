@@ -103,7 +103,7 @@ header{z-index:2;padding:12px 22px;display:flex;align-items:center;justify-conte
 .mtab.on{background:var(--bg3);color:var(--gold2);box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .mtab:hover:not(.on){color:var(--dim)}
 .tsel select{background:var(--bg3);color:var(--fg);border:1px solid var(--borderS);
-  padding:6px 9px;border-radius:5px;font-family:inherit;font-size:11px;cursor:pointer;min-width:140px}
+  padding:6px 9px;border-radius:5px;font-family:inherit;font-size:11px;cursor:pointer;min-width:200px;max-width:280px}
 .spd{display:flex;align-items:center;gap:7px}
 .spd label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap}
 .spd input[type=range]{-webkit-appearance:none;width:90px;height:4px;
@@ -776,14 +776,16 @@ function fillTrackSel(){
 }
 function pickBestTrack(){
   const withNotes=S.midi.tracks.filter(t=>t.notes&&t.notes.length>0);
-  // Format 1 with multiple note tracks → merge all by default
-  if(S.midi.header&&S.midi.header.format===1&&withNotes.length>1){
+  // If 2+ tracks have notes, they are parallel voices — merge all by default.
+  // (@tonejs/midi has no header.format, so we detect by note-track count)
+  if(withNotes.length>1){
     S.trackIdx='all';
     document.getElementById('trksel').value='all';
     return;
   }
+  // Single note track: select it directly
   let best=0,cnt=0;
-  S.midi.tracks.forEach((t,i)=>{if(t.notes.length>cnt){cnt=t.notes.length;best=i;}});
+  S.midi.tracks.forEach((t,i)=>{if(t.notes&&t.notes.length>cnt){cnt=t.notes.length;best=i;}});
   S.trackIdx=best;document.getElementById('trksel').value=best;
 }
 
