@@ -758,22 +758,50 @@ async function loadFile(file){
 
 function fillTrackSel(){
   const sel=document.getElementById('trksel');sel.innerHTML='';
+  // Count tracks with notes
+  const withNotes=S.midi.tracks.filter(t=>t.notes&&t.notes.length>0);
+  // "All tracks" option when more than one track has notes
+  if(withNotes.length>1){
+    const all=document.createElement('option');
+    all.value='all';
+    all.textContent='★ Todas las pistas ('+withNotes.length+' pistas, '+
+      withNotes.reduce((s,t)=>s+t.notes.length,0)+' notas)';
+    sel.appendChild(all);
+  }
   S.midi.tracks.forEach((t,i)=>{
     const o=document.createElement('option');o.value=i;
-    o.textContent=(t.name||'Pista '+(i+1))+' ('+t.notes.length+')';
+    o.textContent=(t.name&&t.name.trim()||'Pista '+(i+1))+' ('+t.notes.length+')';
     if(!t.notes.length)o.disabled=true;
     sel.appendChild(o);});
 }
 function pickBestTrack(){
+  const withNotes=S.midi.tracks.filter(t=>t.notes&&t.notes.length>0);
+  // Format 1 with multiple note tracks → merge all by default
+  if(S.midi.header&&S.midi.header.format===1&&withNotes.length>1){
+    S.trackIdx='all';
+    document.getElementById('trksel').value='all';
+    return;
+  }
   let best=0,cnt=0;
   S.midi.tracks.forEach((t,i)=>{if(t.notes.length>cnt){cnt=t.notes.length;best=i;}});
   S.trackIdx=best;document.getElementById('trksel').value=best;
 }
 
 function buildEvents(){
-  const track=S.midi.tracks[S.trackIdx];
-  if(!track||!track.notes.length){S.events=[];return;}
-  const sorted=[...track.notes].sort((a,b)=>a.ticks-b.ticks);
+  // Gather notes: either from one track or merged from all tracks with notes
+  let allNotes=[];
+  if(S.trackIdx==='all'){
+    S.midi.tracks.forEach(t=>{
+      if(t.notes&&t.notes.length)allNotes.push(...t.notes);
+    });
+  }else{
+    const track=S.midi.tracks[S.trackIdx];
+    if(!track||!track.notes.length){S.events=[];return;}
+    allNotes=[...track.notes];
+  }
+  if(!allNotes.length){S.events=[];return;}
+
+  const sorted=allNotes.sort((a,b)=>a.ticks-b.ticks);
   const evts=[];let cur=null;
   const tol=Math.max(1,S.ppq/8);
   for(const n of sorted){
@@ -1552,7 +1580,7 @@ function init(){
   });
   document.getElementById('exbtn').addEventListener('click',loadExample);
   document.getElementById('trksel').addEventListener('change',e=>{
-    S.trackIdx=parseInt(e.target.value);
+    S.trackIdx=e.target.value==='all'?'all':parseInt(e.target.value);
     stopTimed();stopPractice();
     S.step=0;S.timedStep=0;
     S.stats={ok:0,err:0,excellent:0,good:0,fair:0,poor:0};S.grades=[];
