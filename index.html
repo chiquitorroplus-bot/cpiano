@@ -395,13 +395,102 @@ function vfKey(m){ return VFL[m%12]+'/'+(Math.floor(m/12)-1); }
 function isBlack(m){ return SHARPS.has(m%12); }
 
 // ═══════════════════════════════════════════════════════
+// KEY SIGNATURE DETECTION
+// Finds the major/minor key that best fits the note distribution.
+// VexFlow key names: 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#',
+//                   'F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb', 'Cb',
+//                   'Am', 'Em', 'Bm', 'F#m', 'C#m', 'G#m', 'D#m',
+//                   'Dm', 'Gm', 'Cm', 'Fm', 'Bbm'
+// ═══════════════════════════════════════════════════════
+const MAJOR_SCALE = [0,2,4,5,7,9,11];
+const MINOR_SCALE = [0,2,3,5,7,8,10];
+
+// Pitch classes present in each key's key signature (sharps/flats)
+// Used to decide whether to show accidentals in VexFlow
+const KEY_SIGNATURES = {
+  'C':   new Set([]),
+  'G':   new Set([6]),          // F#
+  'D':   new Set([6,1]),        // F#,C#
+  'A':   new Set([6,1,8]),      // F#,C#,G#
+  'E':   new Set([6,1,8,3]),    // F#,C#,G#,D#
+  'B':   new Set([6,1,8,3,10]), // F#,C#,G#,D#,A#
+  'F#':  new Set([6,1,8,3,10,5]),
+  'C#':  new Set([6,1,8,3,10,5,0]),
+  'F':   new Set([10]),         // Bb
+  'Bb':  new Set([10,3]),
+  'Eb':  new Set([10,3,8]),
+  'Ab':  new Set([10,3,8,1]),
+  'Db':  new Set([10,3,8,1,6]),
+  'Gb':  new Set([10,3,8,1,6,11]),
+  'Cb':  new Set([10,3,8,1,6,11,4]),
+  // Minor keys share key sig with relative major
+  'Am':  new Set([]),           // = C major
+  'Em':  new Set([6]),          // = G major
+  'Bm':  new Set([6,1]),        // = D major
+  'F#m': new Set([6,1,8]),      // = A major
+  'C#m': new Set([6,1,8,3]),    // = E major  ← Moonlight Sonata!
+  'G#m': new Set([6,1,8,3,10]),
+  'D#m': new Set([6,1,8,3,10,5]),
+  'Dm':  new Set([10]),
+  'Gm':  new Set([10,3]),
+  'Cm':  new Set([10,3,8]),
+  'Fm':  new Set([10,3,8,1]),
+  'Bbm': new Set([10,3,8,1,6]),
+};
+
+// VexFlow key string map (same as above keys, already valid for addKeySignature)
+const VF_KEY_NAMES = {
+  'C':'C','G':'G','D':'D','A':'A','E':'E','B':'B','F#':'F#','C#':'C#',
+  'F':'F','Bb':'Bb','Eb':'Eb','Ab':'Ab','Db':'Db','Gb':'Gb','Cb':'Cb',
+  'Am':'Am','Em':'Em','Bm':'Bm','F#m':'F#m','C#m':'C#m','G#m':'G#m','D#m':'D#m',
+  'Dm':'Dm','Gm':'Gm','Cm':'Cm','Fm':'Fm','Bbm':'Bbm',
+};
+
+function detectKey(midi){
+  // Count pitch classes across all tracks
+  const cnt = new Array(12).fill(0);
+  midi.tracks.forEach(t=>{
+    if(t.notes)t.notes.forEach(n=>cnt[n.midi%12]++);
+  });
+  let best='C', bestScore=0;
+  for(let root=0;root<12;root++){
+    for(const [name,intervals] of [['major',MAJOR_SCALE],['minor',MINOR_SCALE]]){
+      const scale=new Set(intervals.map(i=>(root+i)%12));
+      const score=cnt.reduce((s,v,pc)=>scale.has(pc)?s+v:s,0);
+      if(score>bestScore){
+        bestScore=score;
+        const noteName=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][root];
+        best=name==='minor'?noteName+'m':noteName;
+      }
+    }
+  }
+  return best;
+}
+
+// Given current key, should this pitch class show an accidental in VexFlow?
+// VexFlow adds accidentals automatically for notes NOT in the key signature,
+// but we must NOT add manual accidentals for notes that ARE in the key sig.
+function needsAccidental(pitchClass, keyName){
+  const sig=KEY_SIGNATURES[keyName]||KEY_SIGNATURES['C'];
+  // A note needs an explicit accidental only if it's a sharp/flat
+  // AND it's NOT already in the key signature
+  // (VexFlow handles naturals for key-sig notes played as natural)
+  if(!SHARPS.has(pitchClass)) return false;  // natural note, no accidental
+  return !sig.has(pitchClass);               // sharp not in key sig -> show it
+}
+
+// ═══════════════════════════════════════════════════════
 // DURATION: ticks -> VexFlow duration string
 // ═══════════════════════════════════════════════════════
 function toDur(ticks, ppq){
   const q=ppq, table=[
-    {d:'w',t:q*4},{d:'hd',t:q*3},{d:'h',t:q*2},
-    {d:'qd',t:q*1.5},{d:'q',t:q},{d:'8d',t:q*.75},
-    {d:'8',t:q/2},{d:'16',t:q/4},{d:'32',t:q/8}
+    {d:'w', t:q*4},   {d:'hd',t:q*3},    {d:'h', t:q*2},
+    {d:'qd',t:q*1.5}, {d:'q', t:q},      {d:'8d',t:q*0.75},
+    {d:'8', t:q/2},   {d:'16',t:q/4},    {d:'32',t:q/8},
+    // Triplet durations: q/3 = triplet quarter, q*2/3 = triplet half, etc.
+    {d:'8', t:Math.round(q/3)},           // triplet eighth (160 ticks @ ppq=480)
+    {d:'q', t:Math.round(q*2/3)},         // triplet quarter
+    {d:'h', t:Math.round(q*4/3)},         // triplet half
   ];
   if(ticks<=0) return '16';
   let best=table[table.length-1], bd=Infinity;
@@ -449,7 +538,7 @@ const S={
   timedTs:null, timedRaf:null,
   timedWait:false, timedStep:0,
   grades:[], stats:{ok:0,err:0,excellent:0,good:0,fair:0,poor:0},
-  ppq:480, tpb:1920, bpb:4, bu:4,
+  ppq:480, tpb:1920, bpb:4, bu:4, keyName:'C',
   plo:36, phi:84,
   // Segment
   segFrom:0, segTo:Infinity, segActive:false,
@@ -749,7 +838,9 @@ async function loadFile(file){
       if(ts&&ts.length&&ts[0].timeSignature){S.bpb=ts[0].timeSignature[0];S.bu=ts[0].timeSignature[1];}}
     catch(e){}
     S.tpb=S.ppq*4*S.bpb/S.bu;
-    fillTrackSel();pickBestTrack();buildEvents();
+    fillTrackSel();pickBestTrack();
+    S.keyName=detectKey(S.midi);
+    buildEvents();
     renderScore();buildPiano();updDisplay();updStats();
     toast('Cargado: '+file.name,'success');
     setMode('free');startFree();
@@ -790,20 +881,17 @@ function pickBestTrack(){
 }
 
 function buildEvents(){
-  // Gather notes: either from one track or merged from all tracks with notes
-  let allNotes=[];
   if(S.trackIdx==='all'){
-    S.midi.tracks.forEach(t=>{
-      if(t.notes&&t.notes.length)allNotes.push(...t.notes);
-    });
+    buildEventsMerged();
   }else{
-    const track=S.midi.tracks[S.trackIdx];
-    if(!track||!track.notes.length){S.events=[];return;}
-    allNotes=[...track.notes];
+    buildEventsSingle(S.midi.tracks[S.trackIdx]);
   }
-  if(!allNotes.length){S.events=[];return;}
+}
 
-  const sorted=allNotes.sort((a,b)=>a.ticks-b.ticks);
+// Single track: use pitch-based C4 split
+function buildEventsSingle(track){
+  if(!track||!track.notes.length){S.events=[];return;}
+  const sorted=[...track.notes].sort((a,b)=>a.ticks-b.ticks);
   const evts=[];let cur=null;
   const tol=Math.max(1,S.ppq/8);
   for(const n of sorted){
@@ -815,11 +903,61 @@ function buildEvents(){
       cur.durTicks=Math.max(cur.durTicks,n.durationTicks);
     }
   }
-  // Apply split to each event
-  for(const ev of evts){
-    const sp=splitChord(ev.pitches);
-    ev.treble=sp.treble;ev.bass=sp.bass;
+  for(const ev of evts){const sp=splitChord(ev.pitches);ev.treble=sp.treble;ev.bass=sp.bass;}
+  S.events=evts;
+}
+
+// Multi-track merge: assign tracks to treble/bass by average pitch,
+// then merge their notes independently into each staff.
+function buildEventsMerged(){
+  const noteTracks=S.midi.tracks.map((t,i)=>({t,i})).filter(x=>x.t.notes&&x.t.notes.length>0);
+  if(!noteTracks.length){S.events=[];return;}
+
+  if(noteTracks.length===1){buildEventsSingle(noteTracks[0].t);return;}
+
+  // Compute average pitch per track
+  noteTracks.forEach(x=>{
+    x.avg=x.t.notes.reduce((s,n)=>s+n.midi,0)/x.t.notes.length;
+  });
+  // Sort by avg pitch: highest avg -> treble
+  noteTracks.sort((a,b)=>b.avg-a.avg);
+  const half=Math.ceil(noteTracks.length/2);
+  const trebleTracks=noteTracks.slice(0,half).map(x=>x.t);
+  const bassTracks=noteTracks.slice(half).map(x=>x.t);
+
+  // Tag each note with its staff assignment
+  const tagged=[];
+  trebleTracks.forEach(t=>t.notes.forEach(n=>tagged.push({...n,staff:'treble'})));
+  bassTracks.forEach(t=>t.notes.forEach(n=>tagged.push({...n,staff:'bass'})));
+  tagged.sort((a,b)=>a.ticks-b.ticks);
+
+  // Group into events by tick (separate treble and bass per event)
+  const tol=Math.max(1,S.ppq/8);
+  const evts=[];
+  let cur=null;
+  for(const n of tagged){
+    if(!cur||Math.abs(n.ticks-cur.ticks)>tol){
+      cur={
+        ticks:n.ticks,
+        durTicks:n.durationTicks,
+        barIdx:Math.floor(n.ticks/S.tpb),
+        pitches:[n.midi],
+        treble:n.staff==='treble'?[n.midi]:[],
+        bass:  n.staff==='bass'  ?[n.midi]:[]
+      };
+      evts.push(cur);
+    }else{
+      if(!cur.pitches.includes(n.midi))cur.pitches.push(n.midi);
+      cur.durTicks=Math.max(cur.durTicks,n.durationTicks);
+      if(n.staff==='treble'&&!cur.treble.includes(n.midi))cur.treble.push(n.midi);
+      if(n.staff==='bass'  &&!cur.bass.includes(n.midi))  cur.bass.push(n.midi);
+    }
   }
+  // Sort pitches within each event
+  evts.forEach(ev=>{
+    ev.treble.sort((a,b)=>a-b);
+    ev.bass.sort((a,b)=>a-b);
+  });
   S.events=evts;
 }
 
@@ -850,11 +988,14 @@ function renderScore(){
   }
 
   const VF=Vex.Flow;
-  const ppq=S.ppq,tpb=S.tpb,bpb=S.bpb,bu=S.bu;
+  const ppq=S.ppq, tpb=S.tpb, bpb=S.bpb, bu=S.bu;
 
-  // Group events into bars
+  // ── Detect key signature from pitch class distribution ──
+  const keySig=detectKeySig();
+
+  // ── Group events into bars ──
   let maxTick=0;
-  for(const ev of S.events)maxTick=Math.max(maxTick,ev.ticks);
+  for(const ev of S.events) maxTick=Math.max(maxTick,ev.ticks);
   const nBars=Math.min(Math.ceil((maxTick+1)/tpb),120);
   const bars=Array.from({length:nBars},()=>[]);
   for(const ev of S.events){
@@ -862,27 +1003,13 @@ function renderScore(){
     bars[b].push(ev);
   }
 
-  const BPR=4; // bars per row
+  const BPR=4;
   const nRows=Math.ceil(nBars/BPR);
   const W=Math.max(C.clientWidth||700,700);
 
-  // ── Grand staff vertical geometry ──
-  // VexFlow Stave(x, y, w): y = top of the staff (topmost line).
-  // 5 staff lines span 40px (4 gaps × 10px).
-  // We need padding above/below each staff for stems and ledger lines.
-  //
-  // Treble: stems of 16th notes can reach 4+ spaces above top line (~44px)
-  // Bass:   C2 = 2 ledger lines below bottom line (~24px extra below)
-  //         B1 = between ledger line 1 and 2 below (~34px extra below)
-  const ST=50;   // px above treble top line (stems, slurs, high notes)
-  const SB=30;   // px below treble bottom line (low treble ledger lines)
-  const GAP=20;  // px between treble bottom pad and bass top pad
-  const BT=18;   // px above bass top line
-  const BB=65;   // px below bass bottom line (C2/B1 ledger lines)
-  const RGAP=55; // px between rows
-
-  // Total height for one grand-staff row
-  const ROW=(ST+40+SB)+GAP+(BT+40+BB); // 263px
+  // Grand staff geometry
+  const ST=55, SB=32, GAP=22, BT=20, BB=70, RGAP=58;
+  const ROW=(ST+40+SB)+GAP+(BT+40+BB);
   const totalH=nRows*(ROW+RGAP)+20;
 
   let renderer,ctx;
@@ -893,26 +1020,28 @@ function renderScore(){
     ctx.setFont('Space Grotesk',10);
     ctx.setFillStyle('#2a1f15');
     ctx.setStrokeStyle('#2a1f15');
-  }catch(e){C.innerHTML='<div class="empty"><h3>Error renderer</h3><p>'+e.message+'</p></div>';return;}
+  }catch(e){C.innerHTML='<div class="empty"><h3>Error</h3><p>'+e.message+'</p></div>';return;}
 
-  // domLog: entries in the exact order VexFlow writes them to SVG
-  // Order: T-row0, B-row0, T-row1, B-row1 ...
-  const domLog=[];
+  const domLog=[];   // {idx,clef} in SVG DOM order
 
   for(let r=0;r<nRows;r++){
     const rowBars=bars.slice(r*BPR,(r+1)*BPR);
     if(!rowBars.length)break;
 
-    const yT=r*(ROW+RGAP)+ST;      // top of treble staff
-    const yB=yT+40+SB+GAP+BT;      // top of bass staff
+    const yT=r*(ROW+RGAP)+ST;
+    const yB=yT+40+SB+GAP+BT;
 
     let TS,BS;
     try{
       TS=new VF.Stave(20,yT,W-40);
       BS=new VF.Stave(20,yB,W-40);
-      if(r===0){TS.addClef('treble').addTimeSignature(bpb+'/'+bu);
-                BS.addClef('bass').addTimeSignature(bpb+'/'+bu);}
-      else{TS.addClef('treble');BS.addClef('bass');}
+      if(r===0){
+        TS.addClef('treble').addKeySignature(keySig).addTimeSignature(bpb+'/'+bu);
+        BS.addClef('bass').addKeySignature(keySig).addTimeSignature(bpb+'/'+bu);
+      }else{
+        TS.addClef('treble').addKeySignature(keySig);
+        BS.addClef('bass').addKeySignature(keySig);
+      }
       TS.setContext(ctx).draw();
       BS.setContext(ctx).draw();
       try{
@@ -923,111 +1052,89 @@ function renderScore(){
       }catch(e){}
     }catch(e){console.error('Stave err',e);continue;}
 
-    // Build note arrays for this row
-    const TN=[],BN=[];
-    const rowLogT=[],rowLogB=[];
+    // ── Build notes for this row ──
+    // We render TREBLE and BASS as separate Voice objects per bar so that
+    // VexFlow can align them correctly on the time axis.
+    // Within each staff, if a bar has notes of different durations (e.g. whole
+    // note in bass + 16th notes in treble), we must format them together.
+
+    const allTrebleNotes=[];  // flat list for domLog
+    const allBassNotes=[];
+
+    const rowLogT=[], rowLogB=[];
 
     for(const barEvs of rowBars){
+      const barHasT=barEvs.some(ev=>ev.treble&&ev.treble.length>0);
+      const barHasB=barEvs.some(ev=>ev.bass  &&ev.bass.length>0);
+
       if(!barEvs.length){
-        // Empty bar: whole rests
+        // Completely empty bar
         const tr=mkRest('treble','wr'),br=mkRest('bass','wr');
-        if(tr){TN.push(tr);rowLogT.push(null);}  // clef already passed in mkRest
-        if(br){BN.push(br);rowLogB.push(null);}
+        if(tr){allTrebleNotes.push(tr);rowLogT.push(null);}
+        if(br){allBassNotes.push(br);  rowLogB.push(null);}
       }else{
-        // Check if this bar has ANY notes in each clef
-        const barHasTreble=barEvs.some(ev=>ev.treble.length>0);
-        const barHasBass  =barEvs.some(ev=>ev.bass.length>0);
         for(const ev of barEvs){
           const idx=S.events.indexOf(ev);
           const dur=toDur(ev.durTicks,ppq);
-          // Treble note or rest-per-event (only if treble has notes in this bar)
-          if(ev.treble.length>0){
-            const n=mkNote(ev.treble,dur,'treble');if(n){TN.push(n);rowLogT.push(idx);}
-          }else if(barHasTreble){
-            // Treble has notes elsewhere in bar but not this event: fill with rest
-            const n=mkRest('treble',dur);if(n){TN.push(n);rowLogT.push(null);}
+          // Treble
+          if(ev.treble&&ev.treble.length>0){
+            const n=mkNote(ev.treble,dur,'treble',keySig);
+            if(n){allTrebleNotes.push(n);rowLogT.push(idx);}
+          }else if(barHasT){
+            const n=mkRest('treble',dur);
+            if(n){allTrebleNotes.push(n);rowLogT.push(null);}
           }
-          // Bass note or rest-per-event (only if bass has notes in this bar)
-          if(ev.bass.length>0){
-            const n=mkNote(ev.bass,dur,'bass');if(n){BN.push(n);rowLogB.push(idx);}
-          }else if(barHasBass){
-            // Bass has notes elsewhere in bar but not this event: fill with rest
-            const n=mkRest('bass',dur);if(n){BN.push(n);rowLogB.push(null);}
+          // Bass
+          if(ev.bass&&ev.bass.length>0){
+            const n=mkNote(ev.bass,dur,'bass',keySig);
+            if(n){allBassNotes.push(n);rowLogB.push(idx);}
+          }else if(barHasB){
+            const n=mkRest('bass',dur);
+            if(n){allBassNotes.push(n);rowLogB.push(null);}
           }
         }
-        // If entire bar has no treble notes: one whole-bar rest
-        if(!barHasTreble){
-          const n=mkRest('treble','wr');if(n){TN.push(n);rowLogT.push(null);}
-        }
-        // If entire bar has no bass notes: one whole-bar rest
-        if(!barHasBass){
-          const n=mkRest('bass','wr');if(n){BN.push(n);rowLogB.push(null);}
-        }
+        // Whole-bar rests for empty clefs
+        if(!barHasT){const n=mkRest('treble','wr');if(n){allTrebleNotes.push(n);rowLogT.push(null);}}
+        if(!barHasB){const n=mkRest('bass','wr');  if(n){allBassNotes.push(n); rowLogB.push(null);}}
       }
     }
 
-    // Draw treble THEN bass — this is the DOM order VexFlow follows
-    drawVoice(ctx,TS,TN,bpb*rowBars.length,bu,W-40);
-    drawVoice(ctx,BS,BN,bpb*rowBars.length,bu,W-40);
+    // Draw using Formatter with both voices so alignment is correct
+    drawGrandStaff(ctx,TS,BS,allTrebleNotes,allBassNotes,bpb*rowBars.length,bu,W-40);
+
+    // Append to domLog: treble entries then bass entries for this row
+    for(const idx of rowLogT) domLog.push({idx,clef:'T'});
+    for(const idx of rowLogB) domLog.push({idx,clef:'B'});
 
     // ── Draw barlines spanning both staves ──
-    // Use VexFlow Stave API (getYForLine, getX, getWidth) for exact positions.
-    // VexFlow Stave.getYForLine(n): line 0=bottom, line 4=top.
-    // getYForLine(4) = top staff line, getYForLine(0) = bottom staff line.
     try{
       const svgEl=C.querySelector('svg');
       if(svgEl){
-        // Exact staff line positions via VexFlow API
-        // Get all 5 line positions for each stave, take actual min/max y.
-        // This works regardless of VexFlow's line numbering convention.
-        const tYs = [0,1,2,3,4].map(n => TS.getYForLine(n));
-        const bYs = [0,1,2,3,4].map(n => BS.getYForLine(n));
-        const lineTop = Math.min(...tYs);  // topmost pixel of treble staff
-        const lineBot = Math.max(...bYs);  // bottommost pixel of bass staff
-
+        const tYs=[0,1,2,3,4].map(n=>TS.getYForLine(n));
+        const bYs=[0,1,2,3,4].map(n=>BS.getYForLine(n));
+        const lineTop=Math.min(...tYs);
+        const lineBot=Math.max(...bYs);
+        const noteStartX=TS.getNoteStartX();
+        const staveEndX=TS.getX()+TS.getWidth();
+        const noteWidth=staveEndX-noteStartX;
+        const barWidth=noteWidth/rowBars.length;
         const drawLine=(x,y1,y2,sw)=>{
           const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
-          ln.setAttribute('x1',x); ln.setAttribute('y1',y1);
-          ln.setAttribute('x2',x); ln.setAttribute('y2',y2);
-          ln.setAttribute('stroke','#2a1f15');
-          ln.setAttribute('stroke-width',sw||'1.2');
-          ln.setAttribute('class','grand-barline');
+          ln.setAttribute('x1',x);ln.setAttribute('y1',y1);
+          ln.setAttribute('x2',x);ln.setAttribute('y2',y2);
+          ln.setAttribute('stroke','#2a1f15');ln.setAttribute('stroke-width',sw||'1.2');
           svgEl.appendChild(ln);
         };
-
-        // Calculate bar x positions.
-        // TS.getX() = left edge of note area (after clef/timesig).
-        // TS.getX() + TS.getNoteStartX() gives start of note area.
-        // End of stave = TS.getX() + TS.getWidth().
-        const noteStartX = TS.getNoteStartX();  // x where notes begin
-        const staveEndX  = TS.getX() + TS.getWidth(); // right edge
-        const noteWidth  = staveEndX - noteStartX;
-        const barWidth   = noteWidth / rowBars.length;
-
-        // Internal barlines between bars
-        for(let b=1; b<rowBars.length; b++){
-          const bx = Math.round(noteStartX + b*barWidth);
-          drawLine(bx, lineTop, lineBot, '1.2');
+        for(let b=1;b<rowBars.length;b++){
+          drawLine(Math.round(noteStartX+b*barWidth),lineTop,lineBot,'1.2');
         }
-
-        // Right edge barline (connects both staves)
-        drawLine(staveEndX, lineTop, lineBot, '1.2');
-
-        // Double barline at end of last row
-        if(r===nRows-1){
-          drawLine(staveEndX+0, lineTop, lineBot, '1.2');
-          drawLine(staveEndX+3, lineTop, lineBot, '2.8');
-        }
+        drawLine(staveEndX,lineTop,lineBot,'1.2');
+        if(r===nRows-1){drawLine(staveEndX+3,lineTop,lineBot,'2.8');}
       }
     }catch(e){console.warn('Barline err',e);}
-
-    // Append to domLog in same order: treble entries, then bass entries
-    for(const idx of rowLogT)domLog.push({idx,clef:'T'});
-    for(const idx of rowLogB)domLog.push({idx,clef:'B'});
   }
 
   // ── Assign IDs ──
-  // domLog[i] corresponds to the i-th .vf-stavenote in the SVG.
   try{
     const els=Array.from(C.querySelectorAll('.vf-stavenote'));
     const len=Math.min(els.length,domLog.length);
@@ -1044,50 +1151,75 @@ function renderScore(){
   highlightStep();
 }
 
-// Build a VexFlow note — clef param is critical for correct vertical positioning.
-// Without clef:'bass', bass notes are positioned relative to treble staff and
-// appear many ledger lines below where they should be.
-function mkNote(pitches, dur, clef){
-  try{
-    const VF=Vex.Flow;
-    const keys=pitches.map(vfKey);
-    const n=new VF.StaveNote({keys, duration:dur, clef:clef||'treble', auto_stem:true});
-    pitches.forEach((p,i)=>{
-      if(SHARPS.has(p%12))try{n.addAccidental(i,new VF.Accidental('#'));}catch(e){}
-    });
-    return n;
-  }catch(e){console.warn('mkNote',e);return null;}
+// ── Key signature detection from pitch class histogram ──
+function detectKeySig(){
+  if(!S.events.length)return 'C';
+  // Count pitch classes
+  const pc=new Array(12).fill(0);
+  S.events.forEach(ev=>(ev.pitches||[]).forEach(p=>pc[p%12]++));
+  // Krumhansl major/minor profiles
+  const maj=[6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+  const min=[6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+  const NOTE_VF=['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+  const NOTE_VF_SHARP=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function corr(obs,profile,root){
+    const rot=profile.slice(root).concat(profile.slice(0,root));
+    const om=obs.reduce((s,v)=>s+v,0)/12,pm=rot.reduce((s,v)=>s+v,0)/12;
+    let n=0,do_=0,dp=0;
+    for(let i=0;i<12;i++){const od=obs[i]-om,pd=rot[i]-pm;n+=od*pd;do_+=od*od;dp+=pd*pd;}
+    return do_*dp?n/Math.sqrt(do_*dp):0;
+  }
+  let best=-999,bestKey='C';
+  for(let root=0;root<12;root++){
+    const ms=corr(pc,maj,root),mn=corr(pc,min,root);
+    if(ms>best){best=ms;bestKey=NOTE_VF_SHARP[root];}
+    if(mn>best){best=mn;bestKey=NOTE_VF_SHARP[root]+'m';}
+  }
+  // Map to VexFlow 1.2 key names
+  const map={'C#m':'C#m','F#m':'F#m','Bm':'Bm','Em':'Em','Am':'Am','Dm':'Dm','Gm':'Gm','Cm':'Cm',
+             'C#':'C#','F#':'F#','B':'B','E':'E','A':'A','D':'D','G':'G','C':'C',
+             'Fm':'Fm','Bbm':'Bbm','Ebm':'Ebm','Abm':'Abm','Dbm':'Dbm',
+             'Db':'Db','Gb':'Gb','Cb':'Cb','Fb':'Fb','Ab':'Ab','Eb':'Eb','Bb':'Bb','F':'F'};
+  return map[bestKey]||'C';
 }
 
-// Build a rest with correct clef so VexFlow positions it properly.
-function mkRest(clef, dur){
-  try{
-    const VF=Vex.Flow;
-    let key;
-    if(clef==='bass') key=(dur==='wr'||dur==='h'||dur==='hd')?'d/3':'a/2';
-    else              key='b/4';
-    return new VF.StaveNote({keys:[key], duration:dur+'r', clef:clef, auto_stem:false});
-  }catch(e){return null;}
-}
+// ── Draw grand staff using Formatter for correct time alignment ──
+// Uses separate Voice objects so whole notes and 16th notes align correctly.
+function drawGrandStaff(ctx,TS,BS,trebleNotes,bassNotes,totalBeats,beatVal,staveW){
+  const VF=Vex.Flow;
+  const valid_t=trebleNotes.filter(Boolean);
+  const valid_b=bassNotes.filter(Boolean);
+  if(!valid_t.length&&!valid_b.length)return;
 
-// Draw notes on a stave with FormatAndDraw, fallback to manual voice
-function drawVoice(ctx,stave,notes,beats,beatVal,staveW){
-  const VF=Vex.Flow,valid=notes.filter(Boolean);
-  if(!valid.length)return;
-  try{VF.Formatter.FormatAndDraw(ctx,stave,valid,{auto_beam:true});}
-  catch(e){
-    try{
-      const v=new VF.Voice({num_beats:beats,beat_value:beatVal});
-      v.setStrict(false);v.addTickables(valid);
-      new VF.Formatter().joinVoices([v]).format([v],staveW-120);
-      v.draw(ctx,stave);
-    }catch(e2){console.error('drawVoice fail',e2);}
+  try{
+    const voices=[];
+    let tv=null,bv=null;
+    if(valid_t.length){
+      tv=new VF.Voice({num_beats:totalBeats,beat_value:beatVal});
+      tv.setStrict(false);tv.addTickables(valid_t);
+      voices.push(tv);
+    }
+    if(valid_b.length){
+      bv=new VF.Voice({num_beats:totalBeats,beat_value:beatVal});
+      bv.setStrict(false);bv.addTickables(valid_b);
+      voices.push(bv);
+    }
+    if(!voices.length)return;
+    // Format ALL voices together so they share the same time axis
+    const formatter=new VF.Formatter();
+    formatter.joinVoices(voices.filter(Boolean));
+    formatter.format(voices,staveW-TS.getNoteStartX()+TS.getX()+10);
+    if(tv)tv.draw(ctx,TS);
+    if(bv)bv.draw(ctx,BS);
+  }catch(e){
+    // Fallback: draw each stave independently
+    console.warn('Grand formatter failed',e);
+    drawVoiceFallback(ctx,TS,valid_t,totalBeats,beatVal,staveW);
+    drawVoiceFallback(ctx,BS,valid_b,totalBeats,beatVal,staveW);
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// HIGHLIGHT current and played notes
-// ═══════════════════════════════════════════════════════
+
 function highlightStep(){
   document.querySelectorAll('.vf-stavenote.cur-note,.vf-stavenote.done-note').forEach(el=>{
     el.classList.remove('cur-note','done-note');
