@@ -1183,6 +1183,49 @@ function detectKeySig(){
   return map[bestKey]||'C';
 }
 
+// ── Build a VexFlow note with key-aware accidentals ──
+function mkNote(pitches, dur, clef){
+  try{
+    const VF=Vex.Flow;
+    const keys=pitches.map(vfKey);
+    const n=new VF.StaveNote({keys, duration:dur, clef:clef||'treble', auto_stem:true});
+    pitches.forEach((p,i)=>{
+      if(needsAccidental(p%12, S.keyName)){
+        try{n.addAccidental(i,new VF.Accidental('#'));}catch(e){}
+      }
+    });
+    return n;
+  }catch(e){console.warn('mkNote',e,pitches);return null;}
+}
+
+// ── Build a rest, correctly positioned in each clef ──
+function mkRest(clef, dur){
+  try{
+    const VF=Vex.Flow;
+    let key;
+    if(clef==='bass') key=(dur==='wr'||dur==='h'||dur==='hd')?'d/3':'a/2';
+    else              key='b/4';
+    return new VF.StaveNote({keys:[key], duration:dur+'r', clef:clef, auto_stem:false});
+  }catch(e){return null;}
+}
+
+// ── Fallback: draw a single voice independently on its stave ──
+function drawVoiceFallback(ctx, stave, notes, totalBeats, beatVal, staveW){
+  const VF=Vex.Flow;
+  const valid=notes.filter(Boolean);
+  if(!valid.length)return;
+  try{
+    VF.Formatter.FormatAndDraw(ctx, stave, valid, {auto_beam:true});
+  }catch(e){
+    try{
+      const v=new VF.Voice({num_beats:totalBeats,beat_value:beatVal});
+      v.setStrict(false);v.addTickables(valid);
+      new VF.Formatter().joinVoices([v]).format([v],staveW-120);
+      v.draw(ctx,stave);
+    }catch(e2){console.error('drawVoiceFallback fail',e2);}
+  }
+}
+
 // ── Draw grand staff using Formatter for correct time alignment ──
 // Uses separate Voice objects so whole notes and 16th notes align correctly.
 function drawGrandStaff(ctx,TS,BS,trebleNotes,bassNotes,totalBeats,beatVal,staveW){
