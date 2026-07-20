@@ -447,20 +447,28 @@ const VF_KEY_NAMES = {
 };
 
 function detectKey(midi){
-  // Count pitch classes across all tracks
   const cnt = new Array(12).fill(0);
   midi.tracks.forEach(t=>{
     if(t.notes)t.notes.forEach(n=>cnt[n.midi%12]++);
   });
-  let best='C', bestScore=0;
-  for(let root=0;root<12;root++){
-    for(const [name,intervals] of [['major',MAJOR_SCALE],['minor',MINOR_SCALE]]){
-      const scale=new Set(intervals.map(i=>(root+i)%12));
-      const score=cnt.reduce((s,v,pc)=>scale.has(pc)?s+v:s,0);
+  // Weight: root and fifth of the scale get 2x, other notes 1x
+  // Check minor first so minor wins ties with relative major
+  const NOTE_NAMES_LC=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  let best='C', bestScore=-1;
+  const modes=[['minor',MINOR_SCALE],['major',MAJOR_SCALE]];
+  for(const [mode,intervals] of modes){
+    for(let root=0;root<12;root++){
+      let score=0;
+      intervals.forEach((iv,pos)=>{
+        const pc=(root+iv)%12;
+        // Root and fifth get 2x weight
+        const w=(pos===0||pos===4)?2:1;
+        score+=cnt[pc]*w;
+      });
       if(score>bestScore){
         bestScore=score;
-        const noteName=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][root];
-        best=name==='minor'?noteName+'m':noteName;
+        const n=NOTE_NAMES_LC[root];
+        best=mode==='minor'?n+'m':n;
       }
     }
   }
@@ -896,11 +904,17 @@ function buildEventsSingle(track){
   const tol=Math.max(1,S.ppq/8);
   for(const n of sorted){
     if(!cur||Math.abs(n.ticks-cur.ticks)>tol){
-      cur={ticks:n.ticks,durTicks:n.durationTicks,pitches:[n.midi],barIdx:Math.floor(n.ticks/S.tpb)};
+      cur={
+        ticks:n.ticks,durTicks:n.durationTicks,pitches:[n.midi],barIdx:Math.floor(n.ticks/S.tpb),
+        trebleDur:n.midi>=SPLIT_MIDI?n.durationTicks:0,
+        bassDur:n.midi<SPLIT_MIDI?n.durationTicks:0
+      };
       evts.push(cur);
     }else{
       if(!cur.pitches.includes(n.midi))cur.pitches.push(n.midi);
       cur.durTicks=Math.max(cur.durTicks,n.durationTicks);
+      if(n.midi>=SPLIT_MIDI)cur.trebleDur=Math.max(cur.trebleDur,n.durationTicks);
+      else cur.bassDur=Math.max(cur.bassDur,n.durationTicks);
     }
   }
   for(const ev of evts){const sp=splitChord(ev.pitches);ev.treble=sp.treble;ev.bass=sp.bass;}
@@ -931,7 +945,7 @@ function buildEventsMerged(){
   bassTracks.forEach(t=>t.notes.forEach(n=>tagged.push({...n,staff:'bass'})));
   tagged.sort((a,b)=>a.ticks-b.ticks);
 
-  // Group into events by tick (separate treble and bass per event)
+  // Group by tick — track SEPARATE durations for treble/bass
   const tol=Math.max(1,S.ppq/8);
   const evts=[];
   let cur=null;
@@ -939,7 +953,9 @@ function buildEventsMerged(){
     if(!cur||Math.abs(n.ticks-cur.ticks)>tol){
       cur={
         ticks:n.ticks,
-        durTicks:n.durationTicks,
+        durTicks:n.durationTicks,           // kept for compat
+        trebleDur:n.staff==='treble'?n.durationTicks:0,
+        bassDur:  n.staff==='bass'  ?n.durationTicks:0,
         barIdx:Math.floor(n.ticks/S.tpb),
         pitches:[n.midi],
         treble:n.staff==='treble'?[n.midi]:[],
@@ -948,15 +964,23 @@ function buildEventsMerged(){
       evts.push(cur);
     }else{
       if(!cur.pitches.includes(n.midi))cur.pitches.push(n.midi);
-      cur.durTicks=Math.max(cur.durTicks,n.durationTicks);
-      if(n.staff==='treble'&&!cur.treble.includes(n.midi))cur.treble.push(n.midi);
-      if(n.staff==='bass'  &&!cur.bass.includes(n.midi))  cur.bass.push(n.midi);
+      if(n.staff==='treble'){
+        if(!cur.treble.includes(n.midi))cur.treble.push(n.midi);
+        cur.trebleDur=Math.max(cur.trebleDur,n.durationTicks);
+      }
+      if(n.staff==='bass'){
+        if(!cur.bass.includes(n.midi))cur.bass.push(n.midi);
+        cur.bassDur=Math.max(cur.bassDur,n.durationTicks);
+      }
+      cur.durTicks=Math.max(cur.trebleDur,cur.bassDur);
     }
   }
-  // Sort pitches within each event
   evts.forEach(ev=>{
     ev.treble.sort((a,b)=>a-b);
     ev.bass.sort((a,b)=>a-b);
+    // Fallback if single-track (no separate durs)
+    if(!ev.trebleDur)ev.trebleDur=ev.durTicks;
+    if(!ev.bassDur)  ev.bassDur=ev.durTicks;
   });
   S.events=evts;
 }
@@ -987,167 +1011,126 @@ function renderScore(){
     return;
   }
 
-  const VF=Vex.Flow;
-  const ppq=S.ppq, tpb=S.tpb, bpb=S.bpb, bu=S.bu;
-
-  // ── Detect key signature from pitch class distribution ──
-  const keySig=detectKeySig();
-
-  // ── Group events into bars ──
-  let maxTick=0;
-  for(const ev of S.events) maxTick=Math.max(maxTick,ev.ticks);
-  const nBars=Math.min(Math.ceil((maxTick+1)/tpb),120);
+  const VF=Vex.Flow, ppq=S.ppq, tpb=S.tpb, bpb=S.bpb, bu=S.bu;
+  let minTick=Infinity,maxTick=0;
+  S.events.forEach(ev=>{minTick=Math.min(minTick,ev.ticks);maxTick=Math.max(maxTick,ev.ticks);});
+  const firstBar=Math.floor(minTick/tpb);
+  const lastBar=Math.min(Math.ceil((maxTick+1)/tpb),firstBar+120);
+  const nBars=Math.max(1,lastBar-firstBar);
   const bars=Array.from({length:nBars},()=>[]);
-  for(const ev of S.events){
-    const b=Math.min(Math.floor(ev.ticks/tpb),nBars-1);
-    bars[b].push(ev);
-  }
+  S.events.forEach((ev,idx)=>{
+    const bar=Math.floor(ev.ticks/tpb)-firstBar;
+    if(bar>=0&&bar<nBars)bars[bar].push({ev,idx});
+  });
 
-  const BPR=4;
-  const nRows=Math.ceil(nBars/BPR);
-  const W=Math.max(C.clientWidth||700,700);
-
-  // Grand staff geometry
-  const ST=55, SB=32, GAP=22, BT=20, BB=70, RGAP=58;
-  const ROW=(ST+40+SB)+GAP+(BT+40+BB);
-  const totalH=nRows*(ROW+RGAP)+20;
-
+  const barsPerRow=4,nRows=Math.ceil(nBars/barsPerRow),W=Math.max(C.clientWidth||700,700);
+  const yTop=55,between=94,rowGap=58,rowHeight=210;
   let renderer,ctx;
   try{
     renderer=new VF.Renderer(C,VF.Renderer.Backends.SVG);
-    renderer.resize(W,totalH);
-    ctx=renderer.getContext();
-    ctx.setFont('Space Grotesk',10);
-    ctx.setFillStyle('#2a1f15');
-    ctx.setStrokeStyle('#2a1f15');
+    renderer.resize(W,nRows*(rowHeight+rowGap)+20);
+    ctx=renderer.getContext();ctx.setFont('Space Grotesk',10);
+    ctx.setFillStyle('#2a1f15');ctx.setStrokeStyle('#2a1f15');
   }catch(e){C.innerHTML='<div class="empty"><h3>Error</h3><p>'+e.message+'</p></div>';return;}
 
-  const domLog=[];   // {idx,clef} in SVG DOM order
+  // Build one rhythmic voice for each staff.  Rests fill only genuine gaps; a
+  // sustained note keeps its MIDI duration instead of being replaced by a rest
+  // whenever the other staff starts another note.
+  const buildStaffVoice=(barItems,staff,durKey,barStart,barEnd)=>{
+    const notes=[],log=[],meta=[];
+    const items=barItems.filter(item=>item.ev[staff]&&item.ev[staff].length)
+      .sort((a,b)=>a.ev.ticks-b.ev.ticks);
+    let cursor=barStart;
+    const addRest=(ticks)=>{
+      if(ticks<=0)return;
+      const n=mkRest(staff,toDur(ticks,ppq));
+      if(n){notes.push(n);log.push(null);meta.push({rest:true});}
+    };
+    for(const item of items){
+      const start=Math.max(barStart,Math.min(barEnd,item.ev.ticks));
+      if(start>cursor)addRest(start-cursor);
+      const raw=Math.max(1,item.ev[durKey]||item.ev.durTicks||ppq);
+      const duration=Math.min(raw,Math.max(1,barEnd-start));
+      const n=mkNote(item.ev[staff],toDur(duration,ppq),staff);
+      if(n){notes.push(n);log.push(item.idx);meta.push({ticks:start,duration,rest:false});}
+      cursor=Math.max(cursor,start+duration);
+    }
+    if(cursor<barEnd)addRest(barEnd-cursor);
+    if(!notes.length)addRest(barEnd-barStart);
+    return {notes,log,meta};
+  };
+  const addTriplets=(notes,meta)=>{
+    const tuplets=[],tolerance=Math.max(2,Math.round(ppq/12));
+    for(let i=0;i+2<meta.length;i++){
+      const a=meta[i],b=meta[i+1],c=meta[i+2];
+      const isTriplet=!a.rest&&!b.rest&&!c.rest&&
+        Math.abs(a.duration-ppq/3)<=tolerance&&Math.abs(b.duration-ppq/3)<=tolerance&&
+        Math.abs(c.duration-ppq/3)<=tolerance&&Math.abs((b.ticks-a.ticks)-ppq/3)<=tolerance&&
+        Math.abs((c.ticks-b.ticks)-ppq/3)<=tolerance;
+      if(isTriplet){
+        try{tuplets.push(new VF.Tuplet(notes.slice(i,i+3),{num_notes:3,notes_occupied:2}));i+=2;}catch(e){}
+      }
+    }
+    return tuplets;
+  };
+  const allLog=[];
 
   for(let r=0;r<nRows;r++){
-    const rowBars=bars.slice(r*BPR,(r+1)*BPR);
-    if(!rowBars.length)break;
-
-    const yT=r*(ROW+RGAP)+ST;
-    const yB=yT+40+SB+GAP+BT;
-
-    let TS,BS;
+    const rowStartBar=r*barsPerRow,rowBars=bars.slice(rowStartBar,rowStartBar+barsPerRow);
+    const T=new VF.Stave(20,r*(rowHeight+rowGap)+yTop,W-40);
+    const B=new VF.Stave(20,r*(rowHeight+rowGap)+yTop+between,W-40);
+    const vfKey=VF_KEY_NAMES[S.keyName]||'C';
+    if(r===0){T.addClef('treble').addKeySignature(vfKey).addTimeSignature(bpb+'/'+bu);B.addClef('bass').addKeySignature(vfKey).addTimeSignature(bpb+'/'+bu);}
+    else {T.addClef('treble').addKeySignature(vfKey);B.addClef('bass').addKeySignature(vfKey);}
+    T.setContext(ctx).draw();B.setContext(ctx).draw();
     try{
-      TS=new VF.Stave(20,yT,W-40);
-      BS=new VF.Stave(20,yB,W-40);
-      if(r===0){
-        TS.addClef('treble').addKeySignature(keySig).addTimeSignature(bpb+'/'+bu);
-        BS.addClef('bass').addKeySignature(keySig).addTimeSignature(bpb+'/'+bu);
-      }else{
-        TS.addClef('treble').addKeySignature(keySig);
-        BS.addClef('bass').addKeySignature(keySig);
-      }
-      TS.setContext(ctx).draw();
-      BS.setContext(ctx).draw();
+      new VF.StaveConnector(T,B).setType(VF.StaveConnector.type.BRACE).setContext(ctx).draw();
+      new VF.StaveConnector(T,B).setType(VF.StaveConnector.type.SINGLE_LEFT).setContext(ctx).draw();
+    }catch(e){}
+
+    const noteStart=T.getNoteStartX(),staveEnd=T.getX()+T.getWidth(),available=staveEnd-noteStart;
+    const barWidth=available/rowBars.length;
+    for(let b=0;b<rowBars.length;b++){
+      const absoluteBar=firstBar+rowStartBar+b,barStart=absoluteBar*tpb,barEnd=barStart+tpb;
+      const treble=buildStaffVoice(rowBars[b],'treble','trebleDur',barStart,barEnd);
+      const bass=buildStaffVoice(rowBars[b],'bass','bassDur',barStart,barEnd);
       try{
-        const br=new VF.StaveConnector(TS,BS);
-        br.setType(VF.StaveConnector.type.BRACE);br.setContext(ctx).draw();
-        const bl=new VF.StaveConnector(TS,BS);
-        bl.setType(VF.StaveConnector.type.SINGLE_LEFT);bl.setContext(ctx).draw();
-      }catch(e){}
-    }catch(e){console.error('Stave err',e);continue;}
-
-    // ── Build notes for this row ──
-    // We render TREBLE and BASS as separate Voice objects per bar so that
-    // VexFlow can align them correctly on the time axis.
-    // Within each staff, if a bar has notes of different durations (e.g. whole
-    // note in bass + 16th notes in treble), we must format them together.
-
-    const allTrebleNotes=[];  // flat list for domLog
-    const allBassNotes=[];
-
-    const rowLogT=[], rowLogB=[];
-
-    for(const barEvs of rowBars){
-      const barHasT=barEvs.some(ev=>ev.treble&&ev.treble.length>0);
-      const barHasB=barEvs.some(ev=>ev.bass  &&ev.bass.length>0);
-
-      if(!barEvs.length){
-        // Completely empty bar
-        const tr=mkRest('treble','wr'),br=mkRest('bass','wr');
-        if(tr){allTrebleNotes.push(tr);rowLogT.push(null);}
-        if(br){allBassNotes.push(br);  rowLogB.push(null);}
-      }else{
-        for(const ev of barEvs){
-          const idx=S.events.indexOf(ev);
-          const dur=toDur(ev.durTicks,ppq);
-          // Treble
-          if(ev.treble&&ev.treble.length>0){
-            const n=mkNote(ev.treble,dur,'treble',keySig);
-            if(n){allTrebleNotes.push(n);rowLogT.push(idx);}
-          }else if(barHasT){
-            const n=mkRest('treble',dur);
-            if(n){allTrebleNotes.push(n);rowLogT.push(null);}
-          }
-          // Bass
-          if(ev.bass&&ev.bass.length>0){
-            const n=mkNote(ev.bass,dur,'bass',keySig);
-            if(n){allBassNotes.push(n);rowLogB.push(idx);}
-          }else if(barHasB){
-            const n=mkRest('bass',dur);
-            if(n){allBassNotes.push(n);rowLogB.push(null);}
-          }
-        }
-        // Whole-bar rests for empty clefs
-        if(!barHasT){const n=mkRest('treble','wr');if(n){allTrebleNotes.push(n);rowLogT.push(null);}}
-        if(!barHasB){const n=mkRest('bass','wr');  if(n){allBassNotes.push(n); rowLogB.push(null);}}
-      }
+        const tv=new VF.Voice({num_beats:bpb,beat_value:bu}).setStrict(false);
+        const bv=new VF.Voice({num_beats:bpb,beat_value:bu}).setStrict(false);
+        tv.addTickables(treble.notes);bv.addTickables(bass.notes);
+        const tuplets=[...addTriplets(treble.notes,treble.meta),...addTriplets(bass.notes,bass.meta)];
+        const formatter=new VF.Formatter();
+        // Format both voices together: their TickContexts now share one x-axis.
+        formatter.joinVoices([tv]);formatter.joinVoices([bv]);
+        // VexFlow 1.2 formats a temporary stave from x=0, even when that stave
+        // was created at a different x.  Format the two voices together, then
+        // translate their shared TickContexts to this bar's actual interval.
+        // The same translation is applied to both staves, preserving alignment.
+        formatter.format([tv,bv],Math.max(24,barWidth-12));
+        const contexts=[...new Set([...tv.getTickables(),...bv.getTickables()]
+          .map(n=>n.getTickContext()).filter(Boolean))];
+        const firstX=Math.min(...contexts.map(tc=>tc.getX()));
+        const targetX=noteStart+b*barWidth+6;
+        contexts.forEach(tc=>tc.setX(tc.getX()-firstX+targetX));
+        tv.draw(ctx,T);bv.draw(ctx,B);
+        tuplets.forEach(t=>{try{t.setContext(ctx).draw();}catch(e){}});
+      }catch(e){console.warn('Aligned grand-staff formatter failed',e);}
+      allLog.push(...treble.log.map(idx=>({idx,clef:'T'})),...bass.log.map(idx=>({idx,clef:'B'})));
     }
-
-    // Draw using Formatter with both voices so alignment is correct
-    drawGrandStaff(ctx,TS,BS,allTrebleNotes,allBassNotes,bpb*rowBars.length,bu,W-40);
-
-    // Append to domLog: treble entries then bass entries for this row
-    for(const idx of rowLogT) domLog.push({idx,clef:'T'});
-    for(const idx of rowLogB) domLog.push({idx,clef:'B'});
-
-    // ── Draw barlines spanning both staves ──
+    // Bar lines are drawn after both staves, so each line crosses the grand staff.
     try{
-      const svgEl=C.querySelector('svg');
-      if(svgEl){
-        const tYs=[0,1,2,3,4].map(n=>TS.getYForLine(n));
-        const bYs=[0,1,2,3,4].map(n=>BS.getYForLine(n));
-        const lineTop=Math.min(...tYs);
-        const lineBot=Math.max(...bYs);
-        const noteStartX=TS.getNoteStartX();
-        const staveEndX=TS.getX()+TS.getWidth();
-        const noteWidth=staveEndX-noteStartX;
-        const barWidth=noteWidth/rowBars.length;
-        const drawLine=(x,y1,y2,sw)=>{
-          const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
-          ln.setAttribute('x1',x);ln.setAttribute('y1',y1);
-          ln.setAttribute('x2',x);ln.setAttribute('y2',y2);
-          ln.setAttribute('stroke','#2a1f15');ln.setAttribute('stroke-width',sw||'1.2');
-          svgEl.appendChild(ln);
-        };
-        for(let b=1;b<rowBars.length;b++){
-          drawLine(Math.round(noteStartX+b*barWidth),lineTop,lineBot,'1.2');
-        }
-        drawLine(staveEndX,lineTop,lineBot,'1.2');
-        if(r===nRows-1){drawLine(staveEndX+3,lineTop,lineBot,'2.8');}
+      const svg=C.querySelector('svg'),top=T.getYForLine(0),bottom=B.getYForLine(4);
+      for(let b=1;b<rowBars.length;b++){
+        const x=Math.round(noteStart+b*barWidth),line=document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1',x);line.setAttribute('x2',x);line.setAttribute('y1',top);line.setAttribute('y2',bottom);line.setAttribute('stroke','#2a1f15');line.setAttribute('stroke-width','1.2');svg.appendChild(line);
       }
-    }catch(e){console.warn('Barline err',e);}
+    }catch(e){}
   }
-
-  // ── Assign IDs ──
-  try{
-    const els=Array.from(C.querySelectorAll('.vf-stavenote'));
-    const len=Math.min(els.length,domLog.length);
-    for(let i=0;i<len;i++){
-      const el=els[i],info=domLog[i];
-      if(info.idx!==null){
-        el.id='vf-'+info.clef+'-'+info.idx;
-        el.dataset.idx=info.idx;
-        el.dataset.clef=info.clef;
-      }
-    }
-  }catch(e){console.warn('ID err',e);}
-
+  // VexFlow emits stave-note groups in the same order in which voices were drawn.
+  Array.from(C.querySelectorAll('.vf-stavenote')).forEach((el,i)=>{
+    const info=allLog[i];
+    if(info&&info.idx!==null){el.id='vf-'+info.clef+'-'+info.idx;el.dataset.idx=info.idx;el.dataset.clef=info.clef;}
+  });
   highlightStep();
 }
 
@@ -1181,6 +1164,28 @@ function detectKeySig(){
              'Fm':'Fm','Bbm':'Bbm','Ebm':'Ebm','Abm':'Abm','Dbm':'Dbm',
              'Db':'Db','Gb':'Gb','Cb':'Cb','Fb':'Fb','Ab':'Ab','Eb':'Eb','Bb':'Bb','F':'F'};
   return map[bestKey]||'C';
+}
+
+// ── Draw notes for a single bar portion of a stave ──
+// Uses Formatter to lay out notes between barX and barX+barW.
+// Each bar is formatted independently for correct spacing.
+function drawBarNotes(ctx, stave, notes, beats, beatVal, barX, barW, clef){
+  const VF=Vex.Flow;
+  const valid=notes.filter(Boolean);
+  if(!valid.length)return;
+  try{
+    const voice=new VF.Voice({num_beats:beats,beat_value:beatVal});
+    voice.setStrict(false);
+    voice.addTickables(valid);
+    const fmt=new VF.Formatter();
+    fmt.joinVoices([voice]);
+    fmt.formatToStave([voice],stave,{align_rests:false});
+    voice.draw(ctx,stave);
+  }catch(e){
+    // Fallback: use FormatAndDraw
+    try{VF.Formatter.FormatAndDraw(ctx,stave,valid);}
+    catch(e2){console.warn('drawBarNotes fail',clef,e2);}
+  }
 }
 
 // ── Build a VexFlow note with key-aware accidentals ──
